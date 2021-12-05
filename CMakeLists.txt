@@ -55,12 +55,23 @@ target_include_directories(mmx_iface
 		generated/contract/include
 		generated/operation/include
 		generated/solution/include
+	PRIVATE
+		src
+		${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(mmx_iface secp256k1 bls vnx_base)
 
 
 add_executable(test_secp256k1 test/test_secp256k1.cpp)
+add_executable(test_vdf test/test_vdf.cpp chiavdf/src/refcode/lzcnt.c)
+
+target_include_directories(test_vdf
+	PRIVATE
+		src
+		${CMAKE_CURRENT_SOURCE_DIR}
+)
 
 target_link_libraries(test_secp256k1 mmx_iface)
+target_link_libraries(test_vdf mmx_iface gmp)
 
