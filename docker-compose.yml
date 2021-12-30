@@ -1,0 +1,19 @@
+version: '2.3'
+
+volumes: mmx-data
+
+services:
+  mmx:
+    image: pestotoast/mmx
+    restart: always
+    group_add:
+      - 109
+      - 44
+    devices:
+      - /dev/dri:/dev/dri
+#    entrypoint: /mmx-node/run_node.sh
+    volumes: 
+      - mmx-data:/mmx-node
+      - /mnt/plots/00/mmx:/mnt/plots/00
+      - /mnt/plots/01/mmx:/mnt/plots/01
+      - /mnt/plots/02/mmx:/mnt/plots/02
