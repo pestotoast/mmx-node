@@ -35,6 +35,7 @@ jobs:
             ghcr.io/pestotoast/mmx-node
           tags: |
             type=raw,value=latest
+            type=schedule,pattern={{date 'YYYYMMDD'}}
 
       - name: Push my own image to GitHub Packages
         uses: docker/build-push-action@v2
