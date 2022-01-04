@@ -37,4 +37,6 @@
 /.project
 /.cproject
 /config/local
+/NETWORK
+/testnet*
 

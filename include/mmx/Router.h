@@ -47,6 +47,8 @@ protected:
 
 	void handle(std::shared_ptr<const ProofOfTime> value);
 
+	void handle(std::shared_ptr<const ProofResponse> value);
+
 private:
 	struct peer_t {
 		bool is_synced = false;
@@ -54,7 +56,10 @@ private:
 		bool is_outbound = false;
 		uint32_t height = 0;
 		uint32_t msg_size = 0;
+		int32_t ping_ms = 0;
+		int64_t last_query_ms = 0;
 		int64_t last_receive_ms = 0;
+		int64_t connected_since_ms = 0;
 		uint64_t client = 0;
 		uint64_t bytes_send = 0;
 		uint64_t bytes_recv = 0;
@@ -66,10 +71,6 @@ private:
 		vnx::MemoryOutputStream out_stream;
 		vnx::TypeInput in;
 		vnx::TypeOutput out;
-		struct {
-			uint32_t height = -1;
-			uint32_t request = -1;
-		} hash_check;
 		peer_t() : in_stream(&buffer), out_stream(&data), in(&in_stream), out(&out_stream) {}
 	};
 
@@ -98,6 +99,8 @@ private:
 
 	void query();
 
+	void save_peers();
+
 	void add_peer(const std::string& address, const int sock);
 
 	void connect_task(const std::string& peer) noexcept;
@@ -109,6 +112,8 @@ private:
 	void on_vdf(uint64_t client, std::shared_ptr<const ProofOfTime> proof);
 
 	void on_block(uint64_t client, std::shared_ptr<const Block> block);
+
+	void on_proof(uint64_t client, std::shared_ptr<const ProofResponse> response);
 
 	void on_transaction(uint64_t client, std::shared_ptr<const Transaction> tx);
 
@@ -147,6 +152,8 @@ private:
 
 	peer_t* find_peer(uint64_t client);
 
+	bool add_msg_hash(const hash_t& hash);
+
 private:
 	bool is_synced = false;
 	bool is_connected = false;
@@ -157,6 +164,7 @@ private:
 	std::set<uint64_t> synced_peers;
 	std::unordered_map<uint64_t, peer_t> peer_map;
 
+	std::queue<hash_t> seen_hash_queue;
 	std::unordered_set<hash_t> seen_hashes;
 
 	mutable std::unordered_map<vnx::request_id_t, sync_job_t> sync_jobs;
@@ -172,11 +180,13 @@ private:
 	size_t tx_counter = 0;
 	size_t vdf_counter = 0;
 	size_t block_counter = 0;
+	size_t proof_counter = 0;
 	size_t upload_counter = 0;
 
 	size_t drop_counter = 0;
 	size_t tx_drop_counter = 0;
 	size_t vdf_drop_counter = 0;
+	size_t proof_drop_counter = 0;
 	size_t block_drop_counter = 0;
 
 };

@@ -16,7 +16,7 @@ For example the variable supply will stabilize the price, one of the key propert
 
 Furthermore, thanks to an efficient implementation and the avoidance of using a virtual machine, it will provide low transaction fees even at high throughput.
 
-Tokes can either be traditionally issued by the owner, or they can be owner-less and created by staking another token over time, in a decentralized manner governed by the blockchain.
+Tokens can either be traditionally issued by the owner, or they can be owner-less and created by staking another token over time, in a decentralized manner governed by the blockchain.
 
 In the future it is planned that anybody can create their own token on MMX using a simple web interface.
 
@@ -27,7 +27,9 @@ The variable reward function is as follows: \
 Where `min_reward` and `const_factor` are fixed at launch.
 
 A mainnet launch is planned in ~6 months or so.
-Currently we are running the _first testnet_, so the coins farmed right now are _not worth anything_.
+Currently we are running _testnet3_, so the coins farmed right now are _not worth anything_.
+
+See `#mmx-news` and `#mmx-general` on discord: https://discord.gg/pQwkebKnPB
 
 ## CLI
 
@@ -43,11 +45,15 @@ To check your balance: `mmx wallet show`
 
 To show wallet activity: `mmx wallet log`
 
+To send coins: `mmx wallet send -a 1.234 -t <address>`
+
 To show the first 10 addresses: `mmx wallet show 10`
 
-To get a specific receiving address: `mmx wallet get address [index]`
+To get a specific receiving address: `mmx wallet get address <index>`
 
-To send coins: `mmx wallet send -a <amount> -t <address>`
+To show wallet activity since height: `mmx wallet log <height>`
+
+To show wallet activity for last N heights: `mmx wallet log -N`
 
 To get the seed value from a wallet: `mmx wallet get seed`
 
@@ -81,7 +87,7 @@ To reload plots: `mmx farm reload`
 
 ## Setup
 
-First finish the installtion step below.
+First finish the installation step below.
 
 To continue enter the CLI environment:
 ```
@@ -113,12 +119,45 @@ mmx wallet get seed [-j index]
 
 First perform the installation and setup steps.
 
-To run a node for current `testnet1`
+To run a node for current `testnet3`
 ```
 ./run_node.sh
 ```
 
-You can enable port forwaring on TCP port 12331 if you want to help out the network and accept incoming connections.
+You can enable port forwarding on TCP port 12333 if you want to help out the network and accept incoming connections.
+
+To set a custom storage path for the blockchain, etc:
+```
+echo /my/path/ > config/local/root_path
+```
+
+To set a custom storage path for wallet files create/edit `config/local/Wallet.json`:
+```
+{
+	"storage_path": "/my/path/"
+}
+```
+
+To disable the `TimeLord` specify `--timelord 0` on the command line.
+Alternatively, you can also disable it by default: `echo false > config/local/timelord`.
+If you have a slow CPU this is recommended and maybe even needed to stay in sync.
+
+Any config changes require a node restart to become effective.
+
+### Reducing network traffic
+
+If you have a slow internet connection or want to reduce traffic in general you can lower the number of connections in `config/local/Router.json`.
+For example to run at the bare recommended minimum:
+```
+{
+	"num_peers_out": 4,
+	"max_connections": 4
+}
+```
+`num_peers_out` is the maximum number of outgoing connections to synced peers. `max_connections` is the maximum total number of connections.
+Keep in mind this will increase your chances of losing sync.
+
+### Running in background
 
 To run a node in the background you can enter a `screen` session:
 ```
@@ -128,13 +167,22 @@ screen -S node
 screen -r node (to attach again)
 ```
 
-To disable the `TimeLord` specify `--timelord 0` on the command line.
-Alternatively, you can also disable it by default: `echo false > config/local/timelord`.
-If you have a slow CPU this is recommended and maybe even needed to stay in sync.
+### Recover from forking
 
-To re-sync starting from a specific height: `--Node.replay_height <height>`.
-This is needed if for some reason you forked from the network.
+To re-sync starting from a specific height: `./run_node.sh --Node.replay_height <height>`.
+This is needed if for some reason you forked from the network. Just subtract 500 or 1000 blocks from the current height you are stuck at.
 To re-sync from scratch delete `block_chain.dat`.
+
+### Switching to latest testnet
+
+After stopping the node:
+```
+./update.sh
+rm config/local/mmx_node.json
+rm block_chain.dat known_peers.dat NETWORK
+./run_node.sh
+```
+`block_chain.dat`, `known_peers.dat` and `logs` are now stored in `testnet3` folder by default.
 
 ## Plotting
 
@@ -145,10 +193,16 @@ mmx wallet keys [-j index]
 
 The node needs to be running for this command to work. (`-j` to specify the index of a non-default wallet)
 
-Then use my plotter with `-x 11337` argument: https://github.com/madMAx43v3r/chia-plotter
+Then use the latest version of my plotter with `-x 11337` argument: https://github.com/madMAx43v3r/chia-plotter
 
-The minimum K size for mainnet will probably be k30, for testnets it is k26. The plots from testnets can be reused for mainnet later.
-It's possible there will be a time limit for k30 and k31 though, something like 3 years for k30 and 6 years for k31, to prevent grinding attacks in the future.
+It will show the following output at the beginning to confirm the new plot format (from testnet3 onwards):
+```
+Network Port: 11337 [MMX] (unique)
+```
+The new plots will have a name starting with "plot-mmx-". Plots created before that version are only valid on testnet1/2.
+
+The minimum K size for mainnet will be k30, for testnets it is k26. The plots from testnet3 and onwards can be reused for mainnet later.
+However there will be a time limit for k30 and k31, ~3 years for k30 and ~6 years for k31, to prevent grinding attacks in the future.
 
 To add a plot directory add the path to `plot_dirs` array in `config/local/Harvester.json`, for example:
 ```
@@ -168,10 +222,10 @@ sudo apt install git cmake build-essential libsecp256k1-dev libsodium-dev zlib1g
 Arch Linux:
 ```
 sudo pacman -Syu
-sudo pacman -S base-devel git cmake zlib libsecp256k1 libsodium ocl-icd clinfo screen
+sudo pacman -S base-devel git cmake zlib libsecp256k1 libsodium opencl-headers ocl-icd clinfo screen
 ```
 
-OpenCL provides faster and more effient VDF verification using an integrated or dedicated GPU.
+OpenCL provides faster and more efficient VDF verification using an integrated or dedicated GPU.
 A standard iGPU found in Intel CPUs with 192 shader cores is plenty fast enough.
 If you dont have a fast quad core CPU (>3 GHz) or higher core count CPU, it is required to have a GPU with OpenCL support.
 

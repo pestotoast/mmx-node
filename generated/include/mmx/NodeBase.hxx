@@ -32,11 +32,13 @@ class NodeBase : public ::vnx::Module {
 public:
 	
 	::vnx::TopicPtr input_vdfs = "network.vdfs";
+	::vnx::TopicPtr input_proof = "network.proof";
 	::vnx::TopicPtr input_blocks = "network.blocks";
 	::vnx::TopicPtr input_transactions = "network.transactions";
 	::vnx::TopicPtr input_timelord_vdfs = "timelord.proofs";
-	::vnx::TopicPtr input_harvester_proof = "harvester.proofs";
+	::vnx::TopicPtr input_harvester_proof = "harvester.proof";
 	::vnx::TopicPtr output_verified_vdfs = "node.verified_vdfs";
+	::vnx::TopicPtr output_verified_proof = "node.verified_proof";
 	::vnx::TopicPtr output_verified_blocks = "node.verified_blocks";
 	::vnx::TopicPtr output_committed_blocks = "node.committed_blocks";
 	::vnx::TopicPtr output_transactions = "node.transactions";
@@ -49,6 +51,7 @@ public:
 	uint32_t replay_height = -1;
 	uint32_t max_sync_jobs = 64;
 	uint32_t num_sync_retries = 3;
+	uint32_t tx_pool_limit = 1000000;
 	int32_t opencl_device = 0;
 	vnx::bool_t do_sync = true;
 	std::string storage_path;
@@ -101,10 +104,11 @@ protected:
 	virtual void add_transaction(std::shared_ptr<const ::mmx::Transaction> tx) = 0;
 	virtual std::shared_ptr<const ::mmx::Transaction> get_transaction(const ::mmx::hash_t& id) const = 0;
 	virtual std::vector<std::shared_ptr<const ::mmx::Transaction>> get_transactions(const std::vector<::mmx::hash_t>& ids) const = 0;
-	virtual std::vector<::mmx::tx_entry_t> get_history_for(const std::vector<::mmx::addr_t>& addresses, const uint32_t& min_height) const = 0;
+	virtual std::vector<::mmx::tx_entry_t> get_history_for(const std::vector<::mmx::addr_t>& addresses, const int32_t& since) const = 0;
 	virtual std::shared_ptr<const ::mmx::Contract> get_contract(const ::mmx::addr_t& address) const = 0;
 	virtual uint64_t get_balance(const ::mmx::addr_t& address, const ::mmx::addr_t& contract) const = 0;
 	virtual uint64_t get_total_balance(const std::vector<::mmx::addr_t>& addresses, const ::mmx::addr_t& contract) const = 0;
+	virtual uint64_t get_total_supply(const ::mmx::addr_t& contract) const = 0;
 	virtual std::vector<::mmx::utxo_entry_t> get_utxo_list(const std::vector<::mmx::addr_t>& addresses) const = 0;
 	virtual std::vector<::mmx::stxo_entry_t> get_stxo_list(const std::vector<::mmx::addr_t>& addresses) const = 0;
 	virtual void start_sync(const vnx::bool_t& force) = 0;

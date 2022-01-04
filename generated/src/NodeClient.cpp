@@ -35,6 +35,8 @@
 #include <mmx/Node_get_synced_height_return.hxx>
 #include <mmx/Node_get_total_balance.hxx>
 #include <mmx/Node_get_total_balance_return.hxx>
+#include <mmx/Node_get_total_supply.hxx>
+#include <mmx/Node_get_total_supply_return.hxx>
 #include <mmx/Node_get_transaction.hxx>
 #include <mmx/Node_get_transaction_return.hxx>
 #include <mmx/Node_get_transactions.hxx>
@@ -372,10 +374,10 @@ std::vector<std::shared_ptr<const ::mmx::Transaction>> NodeClient::get_transacti
 	}
 }
 
-std::vector<::mmx::tx_entry_t> NodeClient::get_history_for(const std::vector<::mmx::addr_t>& addresses, const uint32_t& min_height) {
+std::vector<::mmx::tx_entry_t> NodeClient::get_history_for(const std::vector<::mmx::addr_t>& addresses, const int32_t& since) {
 	auto _method = ::mmx::Node_get_history_for::create();
 	_method->addresses = addresses;
-	_method->min_height = min_height;
+	_method->since = since;
 	auto _return_value = vnx_request(_method, false);
 	if(auto _result = std::dynamic_pointer_cast<const ::mmx::Node_get_history_for_return>(_return_value)) {
 		return _result->_ret_0;
@@ -419,6 +421,19 @@ uint64_t NodeClient::get_total_balance(const std::vector<::mmx::addr_t>& address
 	_method->contract = contract;
 	auto _return_value = vnx_request(_method, false);
 	if(auto _result = std::dynamic_pointer_cast<const ::mmx::Node_get_total_balance_return>(_return_value)) {
+		return _result->_ret_0;
+	} else if(_return_value && !_return_value->is_void()) {
+		return _return_value->get_field_by_index(0).to<uint64_t>();
+	} else {
+		throw std::logic_error("NodeClient: invalid return value");
+	}
+}
+
+uint64_t NodeClient::get_total_supply(const ::mmx::addr_t& contract) {
+	auto _method = ::mmx::Node_get_total_supply::create();
+	_method->contract = contract;
+	auto _return_value = vnx_request(_method, false);
+	if(auto _result = std::dynamic_pointer_cast<const ::mmx::Node_get_total_supply_return>(_return_value)) {
 		return _result->_ret_0;
 	} else if(_return_value && !_return_value->is_void()) {
 		return _return_value->get_field_by_index(0).to<uint64_t>();

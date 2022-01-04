@@ -52,7 +52,7 @@ protected:
 
 	std::vector<std::shared_ptr<const Transaction>> get_transactions(const std::vector<hash_t>& ids) const override;
 
-	std::vector<tx_entry_t> get_history_for(const std::vector<addr_t>& addresses, const uint32_t& min_height) const override;
+	std::vector<tx_entry_t> get_history_for(const std::vector<addr_t>& addresses, const int32_t& since) const override;
 
 	std::shared_ptr<const Contract> get_contract(const addr_t& address) const override;
 
@@ -63,6 +63,8 @@ protected:
 	uint64_t get_balance(const addr_t& address, const addr_t& contract) const override;
 
 	uint64_t get_total_balance(const std::vector<addr_t>& addresses, const addr_t& contract) const override;
+
+	uint64_t get_total_supply(const addr_t& contract) const override;
 
 	std::vector<utxo_entry_t> get_utxo_list(const std::vector<addr_t>& addresses) const override;
 
@@ -118,7 +120,9 @@ private:
 
 	void sync_more();
 
-	void sync_result(uint32_t height, const std::vector<std::shared_ptr<const Block>>& blocks);
+	void sync_result(const uint32_t& height, const std::vector<std::shared_ptr<const Block>>& blocks);
+
+	std::shared_ptr<const BlockHeader> fork_to(const hash_t& state);
 
 	std::shared_ptr<const BlockHeader> fork_to(std::shared_ptr<fork_t> fork_head);
 
@@ -179,7 +183,7 @@ private:
 
 	uint64_t calc_block_reward(std::shared_ptr<const BlockHeader> block) const;
 
-	std::shared_ptr<const Block> read_block();
+	std::shared_ptr<const Block> read_block(bool is_replay = false, int64_t* file_offset = nullptr);
 
 	void write_block(std::shared_ptr<const Block> block);
 

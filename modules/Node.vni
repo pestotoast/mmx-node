@@ -3,12 +3,14 @@ package mmx;
 module Node implements vnx.addons.HttpComponent {
 	
 	vnx.TopicPtr input_vdfs = "network.vdfs";
+	vnx.TopicPtr input_proof = "network.proof";
 	vnx.TopicPtr input_blocks = "network.blocks";
 	vnx.TopicPtr input_transactions = "network.transactions";
 	vnx.TopicPtr input_timelord_vdfs = "timelord.proofs";
-	vnx.TopicPtr input_harvester_proof = "harvester.proofs";
-	
+	vnx.TopicPtr input_harvester_proof = "harvester.proof";
+
 	vnx.TopicPtr output_verified_vdfs = "node.verified_vdfs";
+	vnx.TopicPtr output_verified_proof = "node.verified_proof";
 	vnx.TopicPtr output_verified_blocks = "node.verified_blocks";
 	vnx.TopicPtr output_committed_blocks = "node.committed_blocks";
 	vnx.TopicPtr output_transactions = "node.transactions";
@@ -25,6 +27,8 @@ module Node implements vnx.addons.HttpComponent {
 	
 	uint max_sync_jobs = 64;				// number of parallel requests
 	uint num_sync_retries = 3;				// how often to retry when reaching a peak
+	
+	uint tx_pool_limit = 1000000;
 	
 	int opencl_device = 0;					// device to use for VDF verification (-1 to disable)
 	
@@ -73,7 +77,7 @@ module Node implements vnx.addons.HttpComponent {
 	vector<Transaction*> get_transactions(vector<hash_t> ids) const;
 	
 	@Permission(permission_e.PUBLIC)
-	vector<tx_entry_t> get_history_for(vector<addr_t> addresses, uint min_height) const;
+	vector<tx_entry_t> get_history_for(vector<addr_t> addresses, int since) const;
 	
 	@Permission(permission_e.PUBLIC)
 	Contract* get_contract(addr_t address) const;
@@ -83,6 +87,9 @@ module Node implements vnx.addons.HttpComponent {
 	
 	@Permission(permission_e.PUBLIC)
 	ulong get_total_balance(vector<addr_t> addresses, addr_t contract) const;
+	
+	@Permission(permission_e.PUBLIC)
+	ulong get_total_supply(addr_t contract) const;
 	
 	@Permission(permission_e.PUBLIC)
 	vector<utxo_entry_t> get_utxo_list(vector<addr_t> addresses) const;

@@ -11,13 +11,14 @@ class ChainParams {
 	uint commit_delay = 18;					// for writing to disk (must > finality_delay)
 	uint finality_delay = 6;				// for primary VDF infusion (must be > 0)
 	uint challenge_delay = 3;				// blocks until new challange is active (must be > 0)
-	uint challenge_interval = 36;			// challenge (and difficulty) is for next N blocks (must be > finality_delay)
+	uint challenge_interval = 36;			// challenge (and difficulty) is for next N blocks (must be > commit_delay)
 	uint max_diff_adjust = 10;				// per block (1/2^x)
 	
 	uint min_vdf_segments = 320;
 	uint num_vdf_segments = 760;
 	uint max_vdf_segments = 1024;
-	
+
+	uint max_tx_base_out = 10;
 	uint recursive_interval = 60480;		// number of blocks per iteration to approximate recursive functions
 	
 	uint score_bits = 10;
