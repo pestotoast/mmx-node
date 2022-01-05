@@ -243,12 +243,12 @@ void Router::handle(std::shared_ptr<const ProofResponse> value)
 	}
 }
 
-uint32_t Router::send_request(uint64_t client, std::shared_ptr<const vnx::Value> method)
+uint32_t Router::send_request(uint64_t client, std::shared_ptr<const vnx::Value> method, bool reliable)
 {
 	auto req = Request::create();
 	req->id = next_request_id++;
 	req->method = method;
-	send_to(client, req);
+	send_to(client, req, reliable);
 	return req->id;
 }
 
@@ -266,45 +266,47 @@ void Router::update()
 	}
 
 	// check if we lost sync due to response timeout
-	size_t num_peers = 0;
-	for(const auto& entry : peer_map) {
-		const auto& peer = entry.second;
-		if(peer.is_synced && now_ms - peer.last_receive_ms < sync_loss_delay * 1000) {
-			num_peers++;
+	{
+		size_t num_peers = 0;
+		for(const auto& entry : peer_map) {
+			const auto& peer = entry.second;
+			if(peer.is_synced && now_ms - peer.last_receive_ms < sync_loss_delay * 1000) {
+				num_peers++;
+			}
+		}
+		if(num_peers < min_sync_peers) {
+			if(is_connected) {
+				log(WARN) << "Lost sync with network due to timeout!";
+				is_connected = false;
+				node->start_sync();
+			}
+		} else {
+			is_connected = true;
 		}
 	}
-	if(num_peers < min_sync_peers) {
-		if(is_connected) {
-			log(WARN) << "Lost sync with network due to timeout!";
-			is_connected = false;
-			node->start_sync();
-		}
-	} else {
-		is_connected = true;
-	}
+
+	// check if we lost sync due to height difference
+	node->get_synced_height(
+		[this](const vnx::optional<uint32_t>& sync_height) {
+			if(sync_height) {
+				size_t num_ahead = 0;
+				const auto height = *sync_height;
+				for(const auto& entry : peer_map) {
+					const auto& peer = entry.second;
+					if(peer.is_synced && peer.height > height && peer.height - height > params->finality_delay) {
+						num_ahead++;
+					}
+				}
+				if(num_ahead > synced_peers.size() / 2 && synced_peers.size() >= min_sync_peers)
+				{
+					log(WARN) << "Lost sync with network due to height difference!";
+					node->start_sync();
+				}
+			}
+		});
 
 	if(synced_peers.size() >= min_sync_peers)
 	{
-		// check if we lost sync due to height difference
-		node->get_synced_height(
-			[this](const vnx::optional<uint32_t>& sync_height) {
-				if(sync_height) {
-					node_height = *sync_height;
-					size_t num_ahead = 0;
-					for(const auto& entry : peer_map) {
-						const auto& peer = entry.second;
-						if(peer.is_synced && peer.height > node_height && peer.height - node_height > params->finality_delay) {
-							num_ahead++;
-						}
-					}
-					if(num_ahead >= synced_peers.size()) {
-						log(WARN) << "Lost sync with network due to height difference!";
-						node->start_sync();
-					}
-				}
-				is_synced = sync_height;
-			});
-
 		// check for sync job timeouts
 		for(auto& entry : sync_jobs) {
 			auto& job = entry.second;
@@ -494,7 +496,7 @@ void Router::connect()
 			threads->add_task(std::bind(&Router::connect_task, this, address));
 		}
 	}
-	else if(synced_peers.size() > num_peers_out)
+	else if(synced_peers.size() > num_peers_out + 1)
 	{
 		for(auto client : get_subset(synced_peers, synced_peers.size() - num_peers_out)) {
 			if(auto peer = find_peer(client)) {
@@ -510,16 +512,56 @@ void Router::connect()
 void Router::query()
 {
 	const auto now_ms = vnx::get_wall_time_millis();
-
-	auto req = Request::create();
-	req->id = next_request_id++;
-	req->method = Node_get_synced_height::create();
-
-	for(auto& entry : peer_map) {
-		auto& peer = entry.second;
-		peer.last_query_ms = now_ms;
-		send_to(peer, req);
+	{
+		auto req = Request::create();
+		req->id = next_request_id++;
+		req->method = Node_get_synced_height::create();
+		send_all(req, false);
 	}
+	last_query_ms = now_ms;
+
+	// check if we forked off
+	node->get_synced_height(
+		[this](const vnx::optional<uint32_t>& sync_height) {
+			if(sync_height) {
+				hash_t major_hash;
+				size_t major_count = 0;
+				for(const auto& entry : fork_check.hash_count) {
+					if(entry.second > major_count) {
+						major_hash = entry.first;
+						major_count = entry.second;
+					}
+				}
+				if(major_count > 0 && major_hash == fork_check.our_hash) {
+					log(INFO) << "A majority of " << major_count << " / " << fork_check.request_map.size() << " peers agree at height " << fork_check.height;
+				}
+				if(major_count >= min_sync_peers && major_hash != fork_check.our_hash)
+				{
+					log(WARN) << "We forked from the network, a majority of "
+							<< major_count << " / " << fork_check.request_map.size() << " peers disagree at height " << fork_check.height << "!";
+					node->start_sync();
+					fork_check.hash_count.clear();
+				}
+				else {
+					const auto height = *sync_height - params->finality_delay;
+					node->get_block_hash(height,
+						[this, height](const vnx::optional<hash_t>& hash) {
+							if(hash) {
+								fork_check.height = height;
+								fork_check.our_hash = *hash;
+								fork_check.hash_count.clear();
+								fork_check.request_map.clear();
+								auto req = Node_get_block_hash::create();
+								req->height = height;
+								for(const auto client : synced_peers) {
+									const auto id = send_request(client, req);
+									fork_check.request_map[id] = client;
+								}
+							}
+						});
+				}
+			}
+		});
 }
 
 void Router::discover()
@@ -529,7 +571,7 @@ void Router::discover()
 	auto req = Request::create();
 	req->id = next_request_id++;
 	req->method = method;
-	send_all(req);
+	send_all(req, false);
 }
 
 void Router::save_peers()
@@ -594,7 +636,7 @@ void Router::print_stats()
 			  << " tx/s, " << float(vdf_counter * 1000) / stats_interval_ms
 			  << " vdf/s, " << float(proof_counter * 1000) / stats_interval_ms
 			  << " proof/s, " << float(block_counter * 1000) / stats_interval_ms
-			  << " blocks/s, " << synced_peers.size() << " / " <<  peer_map.size() << " / " << peer_set.size()
+			  << " block/s, " << synced_peers.size() << " / " <<  peer_map.size() << " / " << peer_set.size()
 			  << " peers, " << upload_counter << " upload, "
 			  << tx_drop_counter << " / " << vdf_drop_counter << " / " << proof_drop_counter << " / " << block_drop_counter << " dropped";
 	tx_counter = 0;
@@ -659,29 +701,39 @@ void Router::relay(uint64_t source, std::shared_ptr<const vnx::Value> msg)
 {
 	for(auto& entry : peer_map) {
 		auto& peer = entry.second;
-		if(peer.is_blocked) {
-			switch(msg->get_type_code()->type_hash) {
-				case Block::VNX_TYPE_ID: block_drop_counter++; break;
-				case Transaction::VNX_TYPE_ID: tx_drop_counter++; break;
-				case ProofOfTime::VNX_TYPE_ID: vdf_drop_counter++; break;
-			}
-			drop_counter++;
-		}
-		else if(entry.first != source) {
-			send_to(peer, msg);
+		if(entry.first != source) {
+			send_to(peer, msg, false);
 		}
 	}
 }
 
-void Router::send_to(uint64_t client, std::shared_ptr<const vnx::Value> msg)
+void Router::send_to(uint64_t client, std::shared_ptr<const vnx::Value> msg, bool reliable)
 {
 	if(auto peer = find_peer(client)) {
-		send_to(*peer, msg);
+		send_to(*peer, msg, reliable);
 	}
 }
 
-void Router::send_to(peer_t& peer, std::shared_ptr<const vnx::Value> msg)
+void Router::send_to(peer_t& peer, std::shared_ptr<const vnx::Value> msg, bool reliable)
 {
+	if(peer.is_blocked && !reliable) {
+		switch(msg->get_type_code()->type_hash) {
+			case Block::VNX_TYPE_ID: block_drop_counter++; break;
+			case Transaction::VNX_TYPE_ID: tx_drop_counter++; break;
+			case ProofOfTime::VNX_TYPE_ID: vdf_drop_counter++; break;
+			case ProofResponse::VNX_TYPE_ID: proof_drop_counter++; break;
+			case Request::VNX_TYPE_ID:
+				if(auto req = std::dynamic_pointer_cast<const Request>(msg)) {
+					auto ret = Return::create();
+					ret->id = req->id;
+					ret->result = vnx::OverflowException::create();
+					add_task(std::bind(&Router::on_return, this, peer.client, ret));
+				}
+				break;
+		}
+		drop_counter++;
+		return;
+	}
 	auto& out = peer.out;
 	vnx::write(out, uint16_t(vnx::CODE_UINT32));
 	vnx::write(out, uint32_t(0));
@@ -700,10 +752,10 @@ void Router::send_to(peer_t& peer, std::shared_ptr<const vnx::Value> msg)
 	Super::send_to(peer.client, buffer);
 }
 
-void Router::send_all(std::shared_ptr<const vnx::Value> msg)
+void Router::send_all(std::shared_ptr<const vnx::Value> msg, bool reliable)
 {
 	for(auto& entry : peer_map) {
-		send_to(entry.second, msg);
+		send_to(entry.second, msg, reliable);
 	}
 }
 
@@ -859,10 +911,22 @@ void Router::on_return(uint64_t client, std::shared_ptr<const Return> msg)
 						send_request(client, Node_get_height::create());
 					}
 					const auto now_ms = vnx::get_wall_time_millis();
-					if(peer->last_query_ms) {
-						peer->ping_ms = now_ms - peer->last_query_ms;
+					if(last_query_ms) {
+						peer->ping_ms = now_ms - last_query_ms;
 					}
 					peer->last_receive_ms = now_ms;
+				}
+			}
+			break;
+		case Node_get_block_hash_return::VNX_TYPE_ID:
+			if(auto value = std::dynamic_pointer_cast<const Node_get_block_hash_return>(result)) {
+				auto iter = fork_check.request_map.find(msg->id);
+				if(iter != fork_check.request_map.end()) {
+					if(iter->second == client) {
+						if(auto hash = value->_ret_0) {
+							fork_check.hash_count[*hash]++;
+						}
+					}
 				}
 			}
 			break;

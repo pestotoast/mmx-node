@@ -2,8 +2,14 @@ cmake_minimum_required(VERSION 3.11)
 project(mmx-node C CXX ASM)
 
 set(CMAKE_CXX_STANDARD 11)
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -fopenmp -Wall -Wno-unused-function")
+
+set(ARITH "easy" CACHE STRING "BLS ARITH")
+set(BUILD_BLS_PYTHON_BINDINGS OFF CACHE BOOL "BUILD_BLS_PYTHON_BINDINGS")
+set(BUILD_BLS_TESTS OFF CACHE BOOL "BUILD_BLS_TESTS")
+set(BUILD_BLS_BENCHMARKS OFF CACHE BOOL "BUILD_BLS_BENCHMARKS")
+set(LIBBECH32_BUILD_GOOGLETEST OFF CACHE BOOL "LIBBECH32_BUILD_GOOGLETEST")
+set(LIBBECH32_BUILD_RAPIDCHECK OFF CACHE BOOL "LIBBECH32_BUILD_RAPIDCHECK")
 
 add_subdirectory(vnx-base)
 add_subdirectory(vnx-addons)
@@ -12,6 +18,8 @@ add_subdirectory(bls-signatures)
 add_subdirectory(basic-opencl)
 
 find_package(Threads REQUIRED)
+
+include(chiapos.cmake)
 
 target_compile_definitions(automy_basic_opencl
 	PUBLIC CL_TARGET_OPENCL_VERSION=120
@@ -61,45 +69,6 @@ add_library(mmx_modules SHARED
 add_library(uint256_t STATIC
 	uint256_t/uint128_t.cpp
 	uint256_t/uint256_t.cpp
-)
-
-set(BLAKE3_PATH ${CMAKE_CURRENT_SOURCE_DIR}/chiapos/src/b3)
-set(FSE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/chiapos/lib/FiniteStateEntropy/lib)
-
-IF (WIN32)
-set(BLAKE3_SRC
-	${BLAKE3_PATH}/blake3.c
-	${BLAKE3_PATH}/blake3_portable.c
-	${BLAKE3_PATH}/blake3_dispatch.c
-	${BLAKE3_PATH}/blake3_avx2.c
-	${BLAKE3_PATH}/blake3_avx512.c
-	${BLAKE3_PATH}/blake3_sse41.c
-)
-ELSEIF(OSX_NATIVE_ARCHITECTURE STREQUAL "arm64")
-set(BLAKE3_SRC
-	${BLAKE3_PATH}/blake3.c
-	${BLAKE3_PATH}/blake3_portable.c
-	${BLAKE3_PATH}/blake3_dispatch.c
-)
-ELSE()
-set(BLAKE3_SRC
-	${BLAKE3_PATH}/blake3.c
-	${BLAKE3_PATH}/blake3_portable.c
-	${BLAKE3_PATH}/blake3_dispatch.c
-	${BLAKE3_PATH}/blake3_avx2_x86-64_unix.S
-	${BLAKE3_PATH}/blake3_avx512_x86-64_unix.S
-	${BLAKE3_PATH}/blake3_sse41_x86-64_unix.S
-)
-ENDIF()
-
-add_library(mmx_chiapos SHARED
-	src/chiapos/chiapos.cpp
-	chiapos/src/chacha8.c
-	${BLAKE3_SRC}
-	${FSE_PATH}/fse_compress.c
-	${FSE_PATH}/fse_decompress.c
-	${FSE_PATH}/entropy_common.c
-	${FSE_PATH}/hist.c
 )
 
 target_include_directories(mmx_iface
