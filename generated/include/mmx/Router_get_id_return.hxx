@@ -5,7 +5,7 @@
 #define INCLUDE_mmx_Router_get_id_return_HXX_
 
 #include <mmx/package.hxx>
-#include <vnx/Hash64.hpp>
+#include <mmx/hash_t.hpp>
 #include <vnx/Value.h>
 
 
@@ -14,7 +14,7 @@ namespace mmx {
 class Router_get_id_return : public ::vnx::Value {
 public:
 	
-	::vnx::Hash64 _ret_0;
+	::mmx::hash_t _ret_0;
 	
 	typedef ::vnx::Value Super;
 	

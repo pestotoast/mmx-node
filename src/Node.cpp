@@ -82,8 +82,8 @@ void Node::main()
 			commit(block);
 		}
 		if(auto block = find_header(state_hash)) {
-			log(INFO) << "Loaded " << block->height + 1 << " blocks from disk, took "
-					<< (vnx::get_wall_time_millis() - time_begin) / 1e3 << " sec";
+			log(INFO) << "Loaded " << block->height + 1 << " blocks with " << tx_index.size()
+					<< " transactions from disk, took " << (vnx::get_wall_time_millis() - time_begin) / 1e3 << " sec";
 		}
 	} else {
 		block_chain->open("wb");
@@ -121,6 +121,7 @@ void Node::main()
 	subscribe(input_harvester_proof, max_queue_ms);
 
 	update_timer = set_timer_millis(update_interval_ms, std::bind(&Node::update, this));
+	stuck_timer = set_timer_millis(sync_loss_delay * 1000, std::bind(&Node::on_stuck_timeout, this));
 
 	update();
 
@@ -580,7 +581,7 @@ void Node::handle(std::shared_ptr<const ProofOfTime> proof)
 
 void Node::handle(std::shared_ptr<const ProofResponse> value)
 {
-	if(!value->proof || !value->request || value->score >= params->score_threshold) {
+	if(!value->proof || !value->request) {
 		return;
 	}
 	const auto root = get_root();
@@ -590,32 +591,35 @@ void Node::handle(std::shared_ptr<const ProofResponse> value)
 	}
 	const auto challenge = request->challenge;
 
-	auto iter = proof_map.find(challenge);
-	if(iter == proof_map.end() || value->score < iter->second->score) {
-		try {
-			const auto diff_block = find_diff_header(root, request->height - root->height);
-			if(!diff_block) {
-				throw std::logic_error("cannot verify");
-			}
-			if(request->space_diff != diff_block->space_diff) {
-				throw std::logic_error("invalid space_diff");
-			}
-			const auto score = verify_proof(value->proof, challenge, diff_block->space_diff);
-			if(score != value->score) {
-				throw std::logic_error("score mismatch");
-			}
+	try {
+		const auto diff_block = find_diff_header(root, request->height - root->height);
+		if(!diff_block) {
+			throw std::logic_error("cannot verify");
+		}
+		if(request->space_diff != diff_block->space_diff) {
+			throw std::logic_error("invalid space_diff");
+		}
+		auto response = vnx::clone(value);
+		response->score = verify_proof(value->proof, challenge, diff_block->space_diff);
+
+		if(response->score >= params->score_threshold) {
+			throw std::logic_error("invalid score");
+		}
+		auto iter = proof_map.find(challenge);
+		if(iter == proof_map.end() || response->score < iter->second->score)
+		{
 			if(iter == proof_map.end()) {
 				challenge_map.emplace(request->height, challenge);
 			}
-			proof_map[challenge] = value;
-			publish(value, output_verified_proof);
+			proof_map[challenge] = response;
 
-			log(DEBUG) << "Got new best proof for height " << request->height << " with score " << value->score;
+			log(DEBUG) << "Got new best proof for height " << request->height << " with score " << response->score;
 		}
-		catch(const std::exception& ex) {
-			if(is_synced) {
-				log(WARN) << "Got invalid proof: " << ex.what();
-			}
+		publish(response, output_verified_proof);
+	}
+	catch(const std::exception& ex) {
+		if(is_synced) {
+			log(WARN) << "Got invalid proof: " << ex.what();
 		}
 	}
 }
@@ -639,6 +643,8 @@ void Node::check_vdfs()
 
 void Node::update()
 {
+	const auto time_begin = vnx::get_wall_time_micros();
+
 	check_vdfs();
 
 	// verify proof where possible
@@ -699,6 +705,17 @@ void Node::update()
 		try {
 			fork->proof_score = verify_proof(block, entry.second);
 			fork->is_proof_verified = true;
+
+			// check if block has a weak proof
+			if(block->proof) {
+				const auto challenge = get_challenge(block, entry.second);
+				const auto iter = proof_map.find(challenge);
+				if(iter != proof_map.end()) {
+					if(fork->proof_score > iter->second->score) {
+						fork->has_weak_proof = true;
+					}
+				}
+			}
 		}
 		catch(const std::exception& ex) {
 #pragma omp critical
@@ -736,14 +753,14 @@ void Node::update()
 		const auto fork_line = get_fork_line();
 
 		// show finalized blocks
-		for(auto fork : fork_line) {
-			if(auto prev = find_prev_fork(fork, params->finality_delay)) {
-				if(!prev->is_finalized) {
-					prev->is_finalized = true;
-					const auto block = prev->block;
+		for(const auto& fork : fork_line) {
+			if(fork->block->height + params->finality_delay < fork_line.back()->block->height) {
+				if(!fork->is_finalized) {
+					fork->is_finalized = true;
+					const auto block = fork->block;
 					Node::log(INFO) << "Finalized height " << block->height << " with: ntx = " << block->tx_list.size()
-							<< ", score = " << (prev ? prev->proof_score : 0) << ", k = " << (block->proof ? block->proof->ksize : 0)
-							<< ", tdiff = " << block->time_diff << ", sdiff = " << block->space_diff;
+							<< ", score = " << fork->proof_score << ", k = " << (block->proof ? block->proof->ksize : 0)
+							<< ", tdiff = " << block->time_diff << ", sdiff = " << block->space_diff << (fork->has_weak_proof ? ", weak proof" : "");
 				}
 			}
 		}
@@ -761,12 +778,16 @@ void Node::update()
 		return;
 	}
 	const auto root = get_root();
+	const auto elapsed = (vnx::get_wall_time_micros() - time_begin) / 1e6;
 
 	if(!prev_peak || peak->hash != prev_peak->hash)
 	{
-		const auto fork = find_fork(peak->hash);
-		log(INFO) << "New peak at height " << peak->height << " with score " << (fork ? std::to_string(fork->proof_score) : "?")
-				<< (forked_at ? " (forked at " + std::to_string(forked_at->height) + ")" : "");
+		stuck_timer->reset();
+		if(auto fork = find_fork(peak->hash)) {
+			log(INFO) << "New peak at height " << peak->height << " with score " << std::to_string(fork->proof_score)
+					<< ", delay " << (fork->recv_time - verified_vdfs[peak->height].recv_time) / 1e6 << " sec"
+					<< ", took " << elapsed << " sec" << (forked_at ? ", forked at " + std::to_string(forked_at->height) : "");
+		}
 	}
 
 	if(!is_synced && sync_pos >= sync_peak && sync_pending.empty())
@@ -776,6 +797,13 @@ void Node::update()
 			sync_pos = sync_peak;
 			sync_peak = -1;
 			sync_retry++;
+		} else if(peak->height + params->finality_delay < sync_peak - 1) {
+			log(ERROR) << "Sync failed, it appears we have forked from the network a while ago.";
+			const auto replay_height = peak->height - std::min<uint32_t>(1000, peak->height);
+			vnx::write_config("Node.replay_height", replay_height);
+			log(INFO) << "Restarting with --Node.replay_height " << replay_height;
+			exit();
+			return;
 		} else {
 			is_synced = true;
 			log(INFO) << "Finished sync at height " << peak->height;
@@ -916,6 +944,8 @@ void Node::update()
 
 bool Node::make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<const ProofResponse> response)
 {
+	const auto time_begin = vnx::get_wall_time_micros();
+
 	vdf_point_t vdf_point;
 	{
 		auto iter = verified_vdfs.find(prev->height + 1);
@@ -1078,11 +1108,21 @@ bool Node::make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<c
 
 	add_block(block);
 
+	const auto elapsed = (vnx::get_wall_time_micros() - time_begin) / 1e6;
 	log(INFO) << "Created block at height " << block->height << " with: ntx = " << block->tx_list.size()
 			<< ", score = " << response->score << ", reward = " << final_reward / pow(10, params->decimals) << " MMX"
 			<< ", nominal = " << block_reward / pow(10, params->decimals) << " MMX"
-			<< ", fees = " << total_fees / pow(10, params->decimals) << " MMX";
+			<< ", fees = " << total_fees / pow(10, params->decimals) << " MMX"
+			<< ", took " << elapsed << " sec";
 	return true;
+}
+
+void Node::on_stuck_timeout()
+{
+	if(is_synced) {
+		log(WARN) << "Lost sync due to progress timeout!";
+	}
+	start_sync(false);
 }
 
 void Node::start_sync(const vnx::bool_t& force)
@@ -1115,7 +1155,8 @@ void Node::sync_more()
 		sync_update = sync_pos;
 		log(INFO) << "Starting sync at height " << sync_pos;
 	}
-	while(sync_pending.size() < max_sync_jobs)
+	const auto max_pending = !sync_retry ? max_sync_jobs : 1;
+	while(sync_pending.size() < max_pending)
 	{
 		if(sync_pos >= sync_peak) {
 			break;
@@ -1231,7 +1272,7 @@ std::shared_ptr<const BlockHeader> Node::fork_to(std::shared_ptr<fork_t> fork_he
 
 std::shared_ptr<Node::fork_t> Node::find_best_fork(std::shared_ptr<const BlockHeader> root, const uint32_t* at_height) const
 {
-	uint64_t max_weight = 0;
+	int64_t max_weight = 0;
 	std::shared_ptr<fork_t> best_fork;
 
 	if(!root) {
@@ -1247,7 +1288,7 @@ std::shared_ptr<Node::fork_t> Node::find_best_fork(std::shared_ptr<const BlockHe
 		if(at_height && block->height != *at_height) {
 			continue;
 		}
-		uint64_t weight = 0;
+		int64_t weight = 0;
 		if(calc_fork_weight(root, fork, weight))
 		{
 			if(!best_fork || weight > max_weight || (weight == max_weight && block->hash < best_fork->block->hash))
@@ -1272,15 +1313,18 @@ std::vector<std::shared_ptr<Node::fork_t>> Node::get_fork_line(std::shared_ptr<f
 	return line;
 }
 
-bool Node::calc_fork_weight(std::shared_ptr<const BlockHeader> root, std::shared_ptr<fork_t> fork, uint64_t& total_weight) const
+bool Node::calc_fork_weight(std::shared_ptr<const BlockHeader> root, std::shared_ptr<fork_t> fork, int64_t& total_weight) const
 {
 	while(fork) {
 		const auto& block = fork->block;
 		if(!fork->is_proof_verified || fork->proof_score > params->score_threshold) {
 			return false;
 		}
-		total_weight += 2 * params->score_threshold - fork->proof_score;
-
+		if(fork->has_weak_proof) {
+			total_weight -= params->score_threshold;	// count as negative dummy
+		} else {
+			total_weight += 2 * params->score_threshold - fork->proof_score;
+		}
 		if(block->prev == root->hash) {
 			return true;
 		}
@@ -1571,18 +1615,7 @@ uint32_t Node::verify_proof(std::shared_ptr<const Block> block, const hash_t& vd
 	}
 	const auto challenge = get_challenge(block, vdf_challenge);
 
-	const auto score = verify_proof(block->proof, challenge, diff_block->space_diff);
-	{
-		// check if block has the best score known
-		auto iter = proof_map.find(challenge);
-		if(iter != proof_map.end()) {
-			const auto response = iter->second;
-			if(score > response->score) {
-				throw std::logic_error("invalid score: " + std::to_string(score) + " > " + std::to_string(response->score));
-			}
-		}
-	}
-	return score;
+	return verify_proof(block->proof, challenge, diff_block->space_diff);
 }
 
 uint32_t Node::verify_proof(std::shared_ptr<const ProofOfSpace> proof, const hash_t& challenge, const uint64_t space_diff) const
@@ -1666,19 +1699,8 @@ void Node::verify_vdf(std::shared_ptr<const ProofOfTime> proof, const vdf_point_
 		} else {
 			throw std::logic_error("cannot verify");
 		}
-		uint64_t target_iters = infused_block->vdf_iters;
-		for(size_t i = 0; i < params->finality_delay; ++i) {
-			if(auto diff_block = find_diff_header(infused_block, i + 1)) {
-				target_iters += diff_block->time_diff * params->time_diff_constant;
-				if(infused_block->height == 0 && infused.first == target_iters) {
-					break;	// genesis case
-				}
-			} else {
-				throw std::logic_error("cannot verify");
-			}
-		}
-		if(infused.first != target_iters) {
-			throw std::logic_error("invalid infusion point on chain 0: " + std::to_string(infused.first) + " != " + std::to_string(target_iters));
+		if(infused_block->height + std::min(params->finality_delay + 1, proof->height) != proof->height) {
+			throw std::logic_error("invalid block height infused on chain 0");
 		}
 		const bool need_second = infused_block->height >= params->challenge_interval
 				&& infused_block->height % params->challenge_interval == 0;

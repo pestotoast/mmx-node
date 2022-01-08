@@ -11,12 +11,26 @@
 #include <mmx/HarvesterClient.hxx>
 #include <mmx/KeyFile.hxx>
 #include <mmx/secp256k1.hpp>
+#include <mmx/hash_t.hpp>
 #include <mmx/utils.h>
 
 #include <vnx/vnx.h>
 #include <vnx/Proxy.h>
 
-#include <sodium.h>
+
+void show_history(const std::vector<mmx::tx_entry_t>& history, std::shared_ptr<const mmx::ChainParams> params)
+{
+	for(const auto& entry : history) {
+		std::cout << "[" << entry.height << "] ";
+		switch(entry.type) {
+			case mmx::tx_type_e::SEND:    std::cout << "SEND    "; break;
+			case mmx::tx_type_e::RECEIVE: std::cout << "RECEIVE "; break;
+			case mmx::tx_type_e::REWARD:  std::cout << "REWARD  "; break;
+			default: std::cout << "????    "; break;
+		}
+		std::cout << entry.amount / pow(10, params->decimals) << " MMX (" << entry.amount << ") -> " << entry.address << std::endl;
+	}
+}
 
 
 int main(int argc, char** argv)
@@ -43,7 +57,6 @@ int main(int argc, char** argv)
 
 	std::string module;
 	std::string command;
-	std::string node_url = ":11331";
 	std::string file_name;
 	std::string target_addr;
 	std::string contract_addr;
@@ -51,7 +64,6 @@ int main(int argc, char** argv)
 	double amount = 0;
 	vnx::read_config("$1", module);
 	vnx::read_config("$2", command);
-	vnx::read_config("node", node_url);
 	vnx::read_config("file", file_name);
 	vnx::read_config("index", index);
 	vnx::read_config("amount", amount);
@@ -84,8 +96,33 @@ int main(int argc, char** argv)
 		goto failed;
 	}
 
-	if(module != "wallet" || command != "create")
+	if(module == "rwallet")
 	{
+		std::string node_url = ":11335";
+		vnx::read_config("node", node_url);
+
+		vnx::Handle<vnx::Proxy> module = new vnx::Proxy("Proxy", vnx::Endpoint::from_url(node_url));
+		module->forward_list = {"Wallet", "Node"};
+		module.start_detached();
+
+		params = node.get_params();
+	}
+	else if(module == "rfarm")
+	{
+		std::string node_url = ":11333";
+		vnx::read_config("node", node_url);
+
+		vnx::Handle<vnx::Proxy> module = new vnx::Proxy("Proxy", vnx::Endpoint::from_url(node_url));
+		module->forward_list = {"Node", "Farmer", "Harvester"};
+		module.start_detached();
+
+		params = node.get_params();
+	}
+	else if(module != "wallet" || command != "create")
+	{
+		std::string node_url = ":11331";
+		vnx::read_config("node", node_url);
+
 		vnx::Handle<vnx::Proxy> module = new vnx::Proxy("Proxy", vnx::Endpoint::from_url(node_url));
 		module->forward_list = {"Wallet", "Node", "Farmer", "Harvester", "Router"};
 		module.start_detached();
@@ -94,7 +131,7 @@ int main(int argc, char** argv)
 	}
 
 	try {
-		if(module == "wallet")
+		if(module == "wallet" || module == "rwallet")
 		{
 			if(command == "show")
 			{
@@ -165,16 +202,7 @@ int main(int argc, char** argv)
 				int64_t since = 0;
 				vnx::read_config("$3", since);
 
-				for(const auto& entry : wallet.get_history(index, since)) {
-					std::cout << "[" << entry.height << "] ";
-					switch(entry.type) {
-						case mmx::tx_type_e::SEND:    std::cout << "SEND    "; break;
-						case mmx::tx_type_e::RECEIVE: std::cout << "RECEIVE "; break;
-						case mmx::tx_type_e::REWARD:  std::cout << "REWARD  "; break;
-						default: std::cout << "????    "; break;
-					}
-					std::cout << entry.amount / pow(10, params->decimals) << " MMX (" << entry.amount << ") -> " << entry.address << std::endl;
-				}
+				show_history(wallet.get_history(index, since), params);
 			}
 			else if(command == "create")
 			{
@@ -190,9 +218,7 @@ int main(int argc, char** argv)
 
 				mmx::KeyFile wallet;
 				if(seed_str.empty()) {
-					std::vector<uint8_t> seed(4096);
-					randombytes_buf(seed.data(), seed.size());
-					wallet.seed_value = mmx::hash_t(seed);
+					wallet.seed_value = mmx::hash_t::random();
 				} else {
 					if(seed_str.size() == 64) {
 						wallet.seed_value.from_string(seed_str);
@@ -234,6 +260,18 @@ int main(int argc, char** argv)
 					std::cout << "Block[" << (height - i) << "] " << (hash ? *hash : mmx::hash_t()) << std::endl;
 				}
 			}
+			else if(command == "history")
+			{
+				mmx::addr_t address;
+				if(!vnx::read_config("$3", address)) {
+					vnx::log_error() << "Missing address argument! (node history <address> [since])";
+					goto failed;
+				}
+				int64_t since = 0;
+				vnx::read_config("$4", since);
+
+				show_history(node.get_history_for({address}, since), params);
+			}
 			else if(command == "peers")
 			{
 				auto info = router.get_peer_info();
@@ -260,8 +298,10 @@ int main(int argc, char** argv)
 					std::cout << ", " << ((peer.bytes_recv / 1024) * 1000) / peer.connect_time_ms << " KB/s recv";
 					std::cout << ", " << ((peer.bytes_send / 1024) * 1000) / peer.connect_time_ms << " KB/s send";
 					std::cout << ", since " << (peer.connect_time_ms / 60000) << " min";
-					std::cout << ", ping = " << peer.ping_ms << " ms";
-					std::cout << ", timeout = " << (peer.recv_timeout_ms / 100) / 10. << " sec";
+					std::cout << ", " << peer.credits << " credits";
+					std::cout << ", " << peer.tx_credits << " tx credits";
+					std::cout << ", " << peer.ping_ms << " ms ping";
+					std::cout << ", " << (peer.recv_timeout_ms / 100) / 10. << " sec timeout";
 					if(peer.is_outbound) {
 						std::cout << ", outbound";
 					}
@@ -393,14 +433,51 @@ int main(int argc, char** argv)
 					std::cout << node.get_total_supply(contract) << std::endl;
 				}
 				else {
-					std::cerr << "Help: mmx node get [height | tx | balance | amount | block | header | peers | netspace | supply]" << std::endl;
+					std::cerr << "Help: mmx node get [height | tx | balance | amount | history | block | header | peers | netspace | supply]" << std::endl;
+				}
+			}
+			else if(command == "fetch")
+			{
+				std::string subject;
+				vnx::read_config("$3", subject);
+
+				if(subject == "block" || subject == "header")
+				{
+					int64_t height = 0;
+					std::string from_peer;
+					vnx::read_config("$4", from_peer);
+					vnx::read_config("$5", height);
+
+					if(from_peer.empty()) {
+						vnx::log_error() << "Missing peer argument: node fetch <peer> [height]";
+						goto failed;
+					}
+					if(height < 0) {
+						vnx::log_error() << "Invalid height: " << height;
+						goto failed;
+					}
+					const auto block = router.fetch_block_at(from_peer, height);
+					{
+						std::stringstream ss;
+						vnx::PrettyPrinter printer(ss);
+						if(subject == "header") {
+							vnx::accept(printer, block ? block->get_header() : nullptr);
+						} else {
+							vnx::accept(printer, block);
+						}
+						std::cout << ss.str() << std::endl;
+					}
+				}
+				else {
+					std::cerr << "Help: mmx node fetch [block | header]" << std::endl;
 				}
 			}
 			else {
-				std::cerr << "Help: mmx node [info | peers | tx | get | balance | sync]" << std::endl;
+				std::cerr << "Help: mmx node [info | peers | tx | get | fetch | balance | sync]" << std::endl;
 			}
 		}
-		else if(module == "farm") {
+		else if(module == "farm" || module == "rfarm")
+		{
 			mmx::HarvesterClient harvester("Harvester");
 
 			auto info = harvester.get_farm_info();

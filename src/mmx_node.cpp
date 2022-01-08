@@ -38,12 +38,16 @@ int main(int argc, char** argv)
 		return -1;
 	}
 	bool with_farmer = true;
+	bool with_wallet = true;
 	bool with_timelord = true;
 	std::string endpoint = ":11331";
+	std::string public_endpoint = "0.0.0.0:11330";
 	std::string root_path;
+	vnx::read_config("wallet", with_wallet);
 	vnx::read_config("farmer", with_farmer);
 	vnx::read_config("timelord", with_timelord);
 	vnx::read_config("endpoint", endpoint);
+	vnx::read_config("public_endpoint", public_endpoint);
 	vnx::read_config("root_path", root_path);
 
 	if(!root_path.empty()) {
@@ -67,6 +71,10 @@ int main(int argc, char** argv)
 		module.start_detached();
 	}
 	{
+		vnx::Handle<vnx::Server> module = new vnx::Server("PublicServer", vnx::Endpoint::from_url(public_endpoint));
+		module.start_detached();
+	}
+	{
 		vnx::Handle<vnx::addons::HttpServer> module = new vnx::addons::HttpServer("HttpServer");
 		module->components["/api/node/"] = "Node";
 		module->components["/api/wallet/"] = "Wallet";
@@ -81,7 +89,7 @@ int main(int argc, char** argv)
 		vnx::Handle<mmx::TimeLord> module = new mmx::TimeLord("TimeLord");
 		module.start_detached();
 	}
-	{
+	if(with_farmer || with_wallet) {
 		vnx::Handle<mmx::Wallet> module = new mmx::Wallet("Wallet");
 		module.start_detached();
 	}
@@ -93,13 +101,15 @@ int main(int argc, char** argv)
 		vnx::Handle<mmx::Harvester> module = new mmx::Harvester("Harvester");
 		module.start_detached();
 	}
+
+	while(vnx::do_run())
 	{
 		vnx::Handle<mmx::Node> module = new mmx::Node("Node");
 		module->storage_path = root_path + module->storage_path;
-		module.start_detached();
+		module.start();
+		module.wait();
 	}
-
-	vnx::wait();
+	vnx::close();
 
 	mmx::secp256k1_free();
 	automy::basic_opencl::release_context();

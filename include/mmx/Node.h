@@ -70,6 +70,8 @@ protected:
 
 	std::vector<stxo_entry_t> get_stxo_list(const std::vector<addr_t>& addresses) const override;
 
+	void on_stuck_timeout();
+
 	void start_sync(const vnx::bool_t& force) override;
 
 	void http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> request, const std::string& sub_path,
@@ -91,6 +93,7 @@ private:
 		bool is_verified = false;
 		bool is_finalized = false;
 		bool is_proof_verified = false;
+		bool has_weak_proof = false;
 		uint32_t proof_score = -1;
 		int64_t recv_time = 0;
 		std::weak_ptr<fork_t> prev;
@@ -130,7 +133,7 @@ private:
 
 	std::vector<std::shared_ptr<fork_t>> get_fork_line(std::shared_ptr<fork_t> fork_head = nullptr) const;
 
-	bool calc_fork_weight(std::shared_ptr<const BlockHeader> root, std::shared_ptr<fork_t> fork, uint64_t& total_weight) const;
+	bool calc_fork_weight(std::shared_ptr<const BlockHeader> root, std::shared_ptr<fork_t> fork, int64_t& total_weight) const;
 
 	void validate(std::shared_ptr<const Block> block) const;
 
@@ -222,6 +225,8 @@ private:
 	uint32_t sync_update = 0;								// height of last update
 	uint32_t sync_retry = 0;
 	std::set<uint32_t> sync_pending;						// set of heights
+
+	std::shared_ptr<vnx::Timer> stuck_timer;
 	std::shared_ptr<vnx::Timer> update_timer;
 
 	std::shared_ptr<const ChainParams> params;
