@@ -40,11 +40,15 @@ protected:
 
 	std::shared_ptr<const Block> get_block_at(const uint32_t& height) const override;
 
+	std::shared_ptr<const BlockHeader> get_header(const hash_t& hash) const override;
+
 	std::shared_ptr<const BlockHeader> get_header_at(const uint32_t& height) const override;
 
 	vnx::optional<hash_t> get_block_hash(const uint32_t& height) const override;
 
 	vnx::optional<uint32_t> get_tx_height(const hash_t& id) const override;
+
+	std::vector<hash_t> get_tx_ids_at(const uint32_t& height) const override;
 
 	txo_info_t get_txo_info(const txio_key_t& key) const override;
 
@@ -90,6 +94,7 @@ protected:
 
 private:
 	struct fork_t {
+		bool is_invalid = false;
 		bool is_verified = false;
 		bool is_finalized = false;
 		bool is_proof_verified = false;
@@ -119,6 +124,8 @@ private:
 
 	void check_vdfs();
 
+	bool include_transaction(std::shared_ptr<const Transaction> tx);
+
 	bool make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<const ProofResponse> response);
 
 	void sync_more();
@@ -145,7 +152,7 @@ private:
 
 	void purge_tree();
 
-	uint32_t verify_proof(std::shared_ptr<const Block> block, const hash_t& vdf_output) const;
+	void verify_proof(std::shared_ptr<fork_t> fork, const hash_t& vdf_output) const;
 
 	uint32_t verify_proof(std::shared_ptr<const ProofOfSpace> proof, const hash_t& challenge, const uint64_t space_diff) const;
 
@@ -213,6 +220,8 @@ private:
 
 	std::unordered_multimap<uint32_t, hash_t> challenge_map;						// [height => challenge]
 	std::unordered_map<hash_t, std::shared_ptr<const ProofResponse>> proof_map;		// [challenge => proof]
+
+	std::unordered_set<hash_t> light_address_set;											// addresses for light mode
 
 	bool is_replay = true;
 	bool is_synced = false;

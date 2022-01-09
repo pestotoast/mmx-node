@@ -6,7 +6,7 @@
 
 #include <mmx/package.hxx>
 #include <mmx/BlockHeader.hxx>
-#include <mmx/Transaction.hxx>
+#include <mmx/TransactionBase.hxx>
 #include <mmx/hash_t.hpp>
 
 
@@ -15,7 +15,7 @@ namespace mmx {
 class Block : public ::mmx::BlockHeader {
 public:
 	
-	std::vector<std::shared_ptr<const ::mmx::Transaction>> tx_list;
+	std::vector<std::shared_ptr<const ::mmx::TransactionBase>> tx_list;
 	
 	typedef ::mmx::BlockHeader Super;
 	

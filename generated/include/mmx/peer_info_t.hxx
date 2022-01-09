@@ -6,6 +6,7 @@
 
 #include <vnx/Type.h>
 #include <mmx/package.hxx>
+#include <mmx/node_type_e.hxx>
 
 
 namespace mmx {
@@ -14,10 +15,12 @@ struct peer_info_t {
 	
 	
 	std::string address;
+	::mmx::node_type_e type;
 	int32_t credits = 0;
 	int32_t tx_credits = 0;
 	int32_t ping_ms = 0;
 	uint32_t height = 0;
+	uint32_t version = 0;
 	int64_t recv_timeout_ms = 0;
 	int64_t connect_time_ms = 0;
 	uint64_t bytes_send = 0;

@@ -28,6 +28,7 @@ namespace mmx {
 Node::Node(const std::string& _vnx_name)
 	:	NodeBase(_vnx_name)
 {
+	params = mmx::get_params();
 }
 
 void Node::init()
@@ -37,29 +38,25 @@ void Node::init()
 
 void Node::main()
 {
-	params = mmx::get_params();
-	{
-		vdf_point_t point;
-		point.height = 0;
-		point.iters = 0;
-		point.output[0] = hash_t(params->vdf_seed);
-		point.output[1] = hash_t(params->vdf_seed);
-		point.recv_time = vnx::get_wall_time_micros();
-		verified_vdfs[0] = point;
-	}
-	vdf_threads = std::make_shared<vnx::ThreadPool>(1);
-
-	if(opencl_device >= 0) {
-		const auto devices = automy::basic_opencl::get_devices();
-		if(size_t(opencl_device) < devices.size()) {
-			for(int i = 0; i < 2; ++i) {
-				opencl_vdf[i] = std::make_shared<OCL_VDF>(opencl_device);
+	if(light_mode) {
+		vnx::read_config("light_address_set", light_address_set);
+		log(INFO) << "Got " << light_address_set.size() << " addresses for light mode.";
+	} else {
+#ifdef WITH_OPENCL
+		if(opencl_device >= 0) {
+			const auto devices = automy::basic_opencl::get_devices();
+			if(size_t(opencl_device) < devices.size()) {
+				for(int i = 0; i < 2; ++i) {
+					opencl_vdf[i] = std::make_shared<OCL_VDF>(opencl_device);
+				}
+				log(INFO) << "Using OpenCL GPU device: " << opencl_device;
 			}
-			log(INFO) << "Using OpenCL GPU device: " << opencl_device;
+			else if(devices.size()) {
+				log(WARN) <<  "No such OpenCL GPU device: " << opencl_device;
+			}
 		}
-		else if(devices.size()) {
-			log(WARN) <<  "No such OpenCL GPU device: " << opencl_device;
-		}
+#endif
+		vdf_threads = std::make_shared<vnx::ThreadPool>(1);
 	}
 
 	router = std::make_shared<RouterAsyncClient>(router_name);
@@ -92,12 +89,18 @@ void Node::main()
 	is_replay = false;
 	is_synced = !do_sync;
 
-	if(state_hash == hash_t()) {
+	if(state_hash == hash_t())
+	{
+		vdf_point_t point;
+		point.output[0] = hash_t(params->vdf_seed);
+		point.output[1] = hash_t(params->vdf_seed);
+		point.recv_time = vnx::get_wall_time_micros();
+		verified_vdfs[0] = point;
+
 		auto genesis = Block::create();
 		genesis->time_diff = params->initial_time_diff;
 		genesis->space_diff = params->initial_space_diff;
-		genesis->vdf_output[0] = hash_t(params->vdf_seed);
-		genesis->vdf_output[1] = hash_t(params->vdf_seed);
+		genesis->vdf_output = point.output;
 		genesis->finalize();
 
 		apply(genesis);
@@ -113,12 +116,14 @@ void Node::main()
 		verified_vdfs[block->height] = point;
 	}
 
-	subscribe(input_vdfs, max_queue_ms);
-	subscribe(input_proof, max_queue_ms);
+	if(!light_mode) {
+		subscribe(input_vdfs, max_queue_ms);
+		subscribe(input_proof, max_queue_ms);
+		subscribe(input_transactions, max_queue_ms);
+		subscribe(input_timelord_vdfs, max_queue_ms);
+		subscribe(input_harvester_proof, max_queue_ms);
+	}
 	subscribe(input_blocks, max_queue_ms);
-	subscribe(input_transactions, max_queue_ms);
-	subscribe(input_timelord_vdfs, max_queue_ms);
-	subscribe(input_harvester_proof, max_queue_ms);
 
 	update_timer = set_timer_millis(update_interval_ms, std::bind(&Node::update, this));
 	stuck_timer = set_timer_millis(sync_loss_delay * 1000, std::bind(&Node::on_stuck_timeout, this));
@@ -130,7 +135,9 @@ void Node::main()
 	vnx::write(block_chain->out, nullptr);
 	block_chain->close();
 
-	vdf_threads->close();
+	if(vdf_threads) {
+		vdf_threads->close();
+	}
 }
 
 std::shared_ptr<const ChainParams> Node::get_params() const
@@ -161,15 +168,7 @@ std::shared_ptr<const Block> Node::get_block(const hash_t& hash) const
 	}
 	auto iter = hash_index.find(hash);
 	if(iter != hash_index.end()) {
-		auto iter2 = block_index.find(iter->second);
-		if(iter2 != block_index.end()) {
-			std::shared_ptr<const Block> block;
-			const auto prev_pos = block_chain->get_output_pos();
-			block_chain->seek_to(iter2->second.first);
-			block = ((Node*)this)->read_block();
-			block_chain->seek_to(prev_pos);
-			return block;
-		}
+		return get_block_at(iter->second);
 	}
 	return nullptr;
 }
@@ -178,7 +177,11 @@ std::shared_ptr<const Block> Node::get_block_at(const uint32_t& height) const
 {
 	auto iter = block_index.find(height);
 	if(iter != block_index.end()) {
-		return get_block(iter->second.second);
+		const auto prev_pos = block_chain->get_output_pos();
+		block_chain->seek_to(iter->second.first);
+		const auto block = ((Node*)this)->read_block();
+		block_chain->seek_to(prev_pos);
+		return block;
 	}
 	const auto line = get_fork_line();
 	if(!line.empty()) {
@@ -189,6 +192,17 @@ std::shared_ptr<const Block> Node::get_block_at(const uint32_t& height) const
 				return line[index]->block;
 			}
 		}
+	}
+	return nullptr;
+}
+
+std::shared_ptr<const BlockHeader> Node::get_header(const hash_t& hash) const
+{
+	if(auto header = find_header(hash)) {
+		return header;
+	}
+	if(auto block = get_block(hash)) {
+		return block->get_header();
 	}
 	return nullptr;
 }
@@ -217,6 +231,17 @@ vnx::optional<hash_t> Node::get_block_hash(const uint32_t& height) const
 		return block->hash;
 	}
 	return nullptr;
+}
+
+std::vector<hash_t> Node::get_tx_ids_at(const uint32_t& height) const
+{
+	std::vector<hash_t> list;
+	if(auto block = get_block_at(height)) {
+		for(const auto& tx : block->tx_list) {
+			list.push_back(tx->id);
+		}
+	}
+	return list;
 }
 
 vnx::optional<uint32_t> Node::get_tx_height(const hash_t& id) const
@@ -284,7 +309,16 @@ std::shared_ptr<const Transaction> Node::get_transaction(const hash_t& id) const
 				block_chain->seek_to(entry.first);
 				auto value = vnx::read(block_chain->in);
 				block_chain->seek_to(last_pos);
-				return std::dynamic_pointer_cast<Transaction>(value);
+				if(auto tx = std::dynamic_pointer_cast<Transaction>(value)) {
+					return tx;
+				}
+				if(auto header = std::dynamic_pointer_cast<BlockHeader>(value)) {
+					if(auto tx = std::dynamic_pointer_cast<const Transaction>(header->tx_base)) {
+						if(tx->id == id) {
+							return tx;
+						}
+					}
+				}
 			}
 			catch(...) {
 				block_chain->seek_to(last_pos);
@@ -391,6 +425,31 @@ std::shared_ptr<const Contract> Node::get_contract(const addr_t& address) const
 	return nullptr;
 }
 
+bool Node::include_transaction(std::shared_ptr<const Transaction> tx)
+{
+	for(const auto& in : tx->inputs) {
+		if(utxo_map.count(in.prev)) {
+			return true;
+		}
+	}
+	for(const auto& out : tx->outputs) {
+		if(light_address_set.count(out.address)) {
+			return true;
+		}
+	}
+	for(const auto& out : tx->exec_outputs) {
+		if(light_address_set.count(out.address)) {
+			return true;
+		}
+	}
+	for(const auto& op : tx->execute) {
+		if(light_address_set.count(op->address)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void Node::add_block(std::shared_ptr<const Block> block)
 {
 	if(fork_tree.count(block->hash)) {
@@ -402,6 +461,26 @@ void Node::add_block(std::shared_ptr<const Block> block)
 	}
 	if(!block->is_valid()) {
 		return;
+	}
+	if(light_mode) {
+		auto copy = vnx::clone(block);
+		if(auto tx = std::dynamic_pointer_cast<const Transaction>(copy->tx_base)) {
+			if(!include_transaction(tx)) {
+				auto dummy = TransactionBase::create();
+				dummy->id = tx->id;
+				copy->tx_base = dummy;
+			}
+		}
+		for(auto& base : copy->tx_list) {
+			if(auto tx = std::dynamic_pointer_cast<const Transaction>(base)) {
+				if(!include_transaction(tx)) {
+					auto dummy = TransactionBase::create();
+					dummy->id = tx->id;
+					base = dummy;
+				}
+			}
+		}
+		block = copy;
 	}
 	auto fork = std::make_shared<fork_t>();
 	fork->recv_time = vnx::get_wall_time_micros();
@@ -420,6 +499,17 @@ void Node::add_block(std::shared_ptr<const Block> block)
 		next->vdf_output = iter->second.output;
 		next->finalize();
 		add_block(next);
+	}
+
+	// fetch missing previous
+	if(is_synced && !fork_tree.count(block->prev))
+	{
+		const auto height = block->height - 1;
+		if(!sync_pending.count(height)) {
+			router->get_blocks_at(height, std::bind(&Node::sync_result, this, height, std::placeholders::_1));
+			sync_pending.insert(height);
+			log(INFO) << "Fetching missed block at height " << height << " with hash " << block->prev;
+		}
 	}
 }
 
@@ -651,14 +741,17 @@ void Node::update()
 	std::vector<std::pair<std::shared_ptr<fork_t>, hash_t>> to_verify;
 	{
 		const auto root = get_root();
-		for(auto iter = fork_tree.begin(); iter != fork_tree.end();)
+		for(const auto& entry : fork_tree)
 		{
-			const auto& fork = iter->second;
+			const auto& fork = entry.second;
 			const auto& block = fork->block;
 
 			bool has_prev = true;
 			if(!fork->prev.lock()) {
 				if(auto prev = find_fork(block->prev)) {
+					if(prev->is_invalid) {
+						fork->is_invalid = true;
+					}
 					fork->prev = prev;
 				} else {
 					has_prev = false;
@@ -667,9 +760,9 @@ void Node::update()
 			if(!fork->diff_block) {
 				fork->diff_block = find_diff_header(block);
 			}
-			if(!fork->is_proof_verified && fork->diff_block && (has_prev || block->prev == root->hash))
+			if(!fork->is_invalid && !fork->is_proof_verified && fork->diff_block && (has_prev || block->prev == root->hash))
 			{
-				bool vdf_passed = false;
+				bool vdf_passed = light_mode;
 				if(is_synced) {
 					auto iter2 = verified_vdfs.find(block->height);
 					if(iter2 != verified_vdfs.end()) {
@@ -677,9 +770,8 @@ void Node::update()
 						if(block->vdf_iters == point.iters && block->vdf_output == point.output) {
 							vdf_passed = true;
 						} else {
+							fork->is_invalid = true;
 							log(WARN) << "VDF verification failed for a block at height " << block->height;
-							iter = fork_tree.erase(iter);
-							continue;
 						}
 					}
 				}
@@ -691,10 +783,8 @@ void Node::update()
 					}
 				}
 			}
-			iter++;
 		}
 	}
-	std::vector<hash_t> invalid;
 
 #pragma omp parallel for
 	for(size_t i = 0; i < to_verify.size(); ++i)
@@ -703,28 +793,12 @@ void Node::update()
 		const auto& fork = entry.first;
 		const auto& block = fork->block;
 		try {
-			fork->proof_score = verify_proof(block, entry.second);
-			fork->is_proof_verified = true;
-
-			// check if block has a weak proof
-			if(block->proof) {
-				const auto challenge = get_challenge(block, entry.second);
-				const auto iter = proof_map.find(challenge);
-				if(iter != proof_map.end()) {
-					if(fork->proof_score > iter->second->score) {
-						fork->has_weak_proof = true;
-					}
-				}
-			}
+			verify_proof(fork, entry.second);
 		}
 		catch(const std::exception& ex) {
-#pragma omp critical
-			invalid.push_back(block->hash);
+			fork->is_invalid = true;
 			log(WARN) << "Proof verification failed for a block at height " << block->height << " with: " << ex.what();
 		}
-	}
-	for(const auto& hash : invalid) {
-		fork_tree.erase(hash);
 	}
 	const auto prev_peak = find_header(state_hash);
 
@@ -754,11 +828,11 @@ void Node::update()
 
 		// show finalized blocks
 		for(const auto& fork : fork_line) {
-			if(fork->block->height + params->finality_delay < fork_line.back()->block->height) {
+			if(fork->block->height + params->finality_delay + 1 < fork_line.back()->block->height) {
 				if(!fork->is_finalized) {
 					fork->is_finalized = true;
 					const auto block = fork->block;
-					Node::log(INFO) << "Finalized height " << block->height << " with: ntx = " << block->tx_list.size()
+					log(INFO) << "Finalized height " << block->height << " with: ntx = " << block->tx_list.size()
 							<< ", score = " << fork->proof_score << ", k = " << (block->proof ? block->proof->ksize : 0)
 							<< ", tdiff = " << block->time_diff << ", sdiff = " << block->space_diff << (fork->has_weak_proof ? ", weak proof" : "");
 				}
@@ -784,9 +858,11 @@ void Node::update()
 	{
 		stuck_timer->reset();
 		if(auto fork = find_fork(peak->hash)) {
+			const auto prev = fork->prev.lock();
 			log(INFO) << "New peak at height " << peak->height << " with score " << std::to_string(fork->proof_score)
-					<< ", delay " << (fork->recv_time - verified_vdfs[peak->height].recv_time) / 1e6 << " sec"
-					<< ", took " << elapsed << " sec" << (forked_at ? ", forked at " + std::to_string(forked_at->height) : "");
+					<< (forked_at ? ", forked at " + std::to_string(forked_at->height) : "")
+					<< ", " << (light_mode ? "delta " : "delay ") << (fork->recv_time - (light_mode ? (prev ? prev->recv_time : 0) : verified_vdfs[peak->height].recv_time)) / 1e6 << " sec"
+					<< ", took " << elapsed << " sec, " << fork_tree.size() << " blocks";
 		}
 	}
 
@@ -812,6 +888,9 @@ void Node::update()
 	if(!is_synced) {
 		sync_more();
 		update_timer->reset();
+		return;
+	}
+	if(light_mode) {
 		return;
 	}
 	{
@@ -1176,16 +1255,17 @@ void Node::sync_result(const uint32_t& height, const std::vector<std::shared_ptr
 			add_block(block);
 		}
 	}
-	if(blocks.empty()) {
-		if(height < sync_peak) {
-			sync_peak = height;
+	if(!is_synced) {
+		if(blocks.empty()) {
+			if(height < sync_peak) {
+				sync_peak = height;
+			}
 		}
-	}
-	sync_more();
-
-	if(sync_pos - sync_update >= 32) {
-		sync_update = sync_pos;
-		add_task(std::bind(&Node::update, this));
+		if(sync_pos - sync_update >= 32) {
+			sync_update = sync_pos;
+			add_task(std::bind(&Node::update, this));
+		}
+		sync_more();
 	}
 }
 
@@ -1244,19 +1324,21 @@ std::shared_ptr<const BlockHeader> Node::fork_to(std::shared_ptr<fork_t> fork_he
 		}
 		if(!fork->is_verified) {
 			try {
-				validate(block);
+				if(!light_mode) {
+					validate(block);
+				}
 				fork->is_verified = true;
 			}
 			catch(const std::exception& ex) {
 				log(WARN) << "Block verification failed for height " << block->height << " with: " << ex.what();
-				fork_tree.erase(block->hash);
+				fork->is_invalid = true;
 				fork_to(prev_state);
 				throw;
 			}
 			if(is_synced) {
 				publish(block, output_verified_blocks);
 			}
-			else {
+			else if(!light_mode) {
 				vdf_point_t point;
 				point.height = block->height;
 				point.iters = block->vdf_iters;
@@ -1282,7 +1364,7 @@ std::shared_ptr<Node::fork_t> Node::find_best_fork(std::shared_ptr<const BlockHe
 	{
 		const auto& fork = entry.second;
 		const auto& block = fork->block;
-		if(block->height <= root->height) {
+		if(fork->is_invalid || block->height <= root->height) {
 			continue;
 		}
 		if(at_height && block->height != *at_height) {
@@ -1317,7 +1399,7 @@ bool Node::calc_fork_weight(std::shared_ptr<const BlockHeader> root, std::shared
 {
 	while(fork) {
 		const auto& block = fork->block;
-		if(!fork->is_proof_verified || fork->proof_score > params->score_threshold) {
+		if(fork->is_invalid || !fork->is_proof_verified || fork->proof_score > params->score_threshold) {
 			return false;
 		}
 		if(fork->has_weak_proof) {
@@ -1366,16 +1448,20 @@ void Node::validate(std::shared_ptr<const Block> block) const
 		}
 	}
 	uint64_t base_spent = 0;
-	if(const auto& tx = block->tx_base) {
+	if(auto tx = std::dynamic_pointer_cast<const Transaction>(block->tx_base)) {
 		base_spent = validate(tx, block);
 	}
 	{
 		std::unordered_set<txio_key_t> inputs;
-		for(const auto& tx : block->tx_list) {
-			for(const auto& in : tx->inputs) {
-				if(!inputs.insert(in.prev).second) {
-					throw std::logic_error("double spend");
+		for(const auto& base : block->tx_list) {
+			if(auto tx = std::dynamic_pointer_cast<const Transaction>(base)) {
+				for(const auto& in : tx->inputs) {
+					if(!inputs.insert(in.prev).second) {
+						throw std::logic_error("double spend");
+					}
 				}
+			} else {
+				throw std::logic_error("transaction missing");
 			}
 		}
 	}
@@ -1386,10 +1472,12 @@ void Node::validate(std::shared_ptr<const Block> block) const
 #pragma omp parallel for
 	for(size_t i = 0; i < block->tx_list.size(); ++i)
 	{
-		const auto& tx = block->tx_list[i];
+		const auto& base = block->tx_list[i];
 		try {
-			total_fees += validate(tx);
-			total_cost += tx->calc_min_fee(params);
+			if(auto tx = std::dynamic_pointer_cast<const Transaction>(base)) {
+				total_fees += validate(tx);
+				total_cost += tx->calc_min_fee(params);
+			}
 		} catch(...) {
 #pragma omp critical
 			failed_ex = std::current_exception();
@@ -1582,21 +1670,30 @@ void Node::commit(std::shared_ptr<const Block> block) noexcept
 void Node::purge_tree()
 {
 	const auto root = get_root();
-	for(auto iter = fork_tree.begin(); iter != fork_tree.end();)
-	{
-		const auto& block = iter->second->block;
-		if(block->height <= root->height
-			|| (is_synced && block->height > root->height + 2 * params->commit_delay))
+	bool repeat = true;
+	std::unordered_set<hash_t> purged;
+	do {
+		repeat = false;
+		for(auto iter = fork_tree.begin(); iter != fork_tree.end();)
 		{
-			iter = fork_tree.erase(iter);
-		} else {
-			iter++;
+			const auto& fork = iter->second;
+			const auto& block = fork->block;
+			if(block->height <= root->height || purged.count(block->prev)
+				|| (is_synced && block->height > root->height + 2 * params->commit_delay))
+			{
+				purged.insert(block->hash);
+				iter = fork_tree.erase(iter);
+				repeat = true;
+			} else {
+				iter++;
+			}
 		}
-	}
+	} while(repeat);
 }
 
-uint32_t Node::verify_proof(std::shared_ptr<const Block> block, const hash_t& vdf_challenge) const
+void Node::verify_proof(std::shared_ptr<fork_t> fork, const hash_t& vdf_challenge) const
 {
+	const auto block = fork->block;
 	const auto prev = find_prev_header(block);
 	if(!prev) {
 		throw std::logic_error("invalid prev");
@@ -1611,11 +1708,22 @@ uint32_t Node::verify_proof(std::shared_ptr<const Block> block, const hash_t& vd
 	// Note: vdf_output already verified to match vdf_iters
 
 	if(!block->proof) {
-		return params->score_threshold;
+		fork->proof_score = params->score_threshold;
+		fork->is_proof_verified = true;
+		return;
 	}
 	const auto challenge = get_challenge(block, vdf_challenge);
 
-	return verify_proof(block->proof, challenge, diff_block->space_diff);
+	fork->proof_score = verify_proof(block->proof, challenge, diff_block->space_diff);
+	fork->is_proof_verified = true;
+
+	// check if block has a weak proof
+	const auto iter = proof_map.find(challenge);
+	if(iter != proof_map.end()) {
+		if(fork->proof_score > iter->second->score) {
+			fork->has_weak_proof = true;
+		}
+	}
 }
 
 uint32_t Node::verify_proof(std::shared_ptr<const ProofOfSpace> proof, const hash_t& challenge, const uint64_t space_diff) const
@@ -1775,6 +1883,7 @@ void Node::verify_vdf_success(std::shared_ptr<const ProofOfTime> proof, const vd
 	else if(elapsed > params->block_time - 3) {
 		log(WARN) << "VDF verification took longer than recommended: " << elapsed << " sec";
 	}
+	log(INFO) << "-------------------------------------------------------------------------------";
 	log(INFO) << "Verified VDF for height " << proof->height << ", delta = "
 				<< (point.recv_time - prev.recv_time) / 1e6 << " sec, took " << elapsed << " sec";
 
@@ -1861,11 +1970,13 @@ void Node::apply(std::shared_ptr<const Block> block) noexcept
 	const auto log = std::make_shared<change_log_t>();
 	log->prev_state = state_hash;
 
-	if(const auto& tx = block->tx_base) {
+	if(auto tx = std::dynamic_pointer_cast<const Transaction>(block->tx_base)) {
 		apply(block, tx, 0, *log);
 	}
 	for(size_t i = 0; i < block->tx_list.size(); ++i) {
-		apply(block, block->tx_list[i], 1 + i, *log);
+		if(auto tx = std::dynamic_pointer_cast<const Transaction>(block->tx_list[i])) {
+			apply(block, tx, 1 + i, *log);
+		}
 	}
 	state_hash = block->hash;
 	change_log.push_back(log);
@@ -2044,24 +2155,23 @@ std::shared_ptr<const Block> Node::read_block(bool is_replay, int64_t* file_offs
 	try {
 		if(auto value = vnx::read(in)) {
 			auto header = std::dynamic_pointer_cast<BlockHeader>(value);
-			if(header) {
-				if(is_replay) {
-					block_index[header->height] = std::make_pair(offset, header->hash);
-				}
-			} else {
+			if(!header) {
 				return nullptr;
 			}
-			if(auto block = std::dynamic_pointer_cast<Block>(value)) {
-				return block;
+			if(is_replay) {
+				if(auto tx = std::dynamic_pointer_cast<const Transaction>(header->tx_base)) {
+					tx_index[tx->id] = std::make_pair(offset, header->height);
+				}
+				block_index[header->height] = std::make_pair(offset, header->hash);
 			}
 			auto block = Block::create();
 			block->BlockHeader::operator=(*header);
 			while(true) {
 				const auto offset = in.get_input_pos();
 				if(auto value = vnx::read(in)) {
-					if(auto tx = std::dynamic_pointer_cast<Transaction>(value)) {
+					if(auto tx = std::dynamic_pointer_cast<TransactionBase>(value)) {
 						block->tx_list.push_back(tx);
-						if(is_replay) {
+						if(is_replay && std::dynamic_pointer_cast<Transaction>(value)) {
 							tx_index[tx->id] = std::make_pair(offset, block->height);
 						}
 					}
@@ -2082,12 +2192,17 @@ void Node::write_block(std::shared_ptr<const Block> block)
 {
 	auto& out = block_chain->out;
 	const auto offset = out.get_output_pos();
+	if(auto tx = std::dynamic_pointer_cast<const Transaction>(block->tx_base)) {
+		tx_index[tx->id] = std::make_pair(offset, block->height);
+	}
 	block_index[block->height] = std::make_pair(offset, block->hash);
 	vnx::write(out, block->get_header());
 
 	for(const auto& tx : block->tx_list) {
 		const auto offset = out.get_output_pos();
-		tx_index[tx->id] = std::make_pair(offset, block->height);
+		if(std::dynamic_pointer_cast<const Transaction>(tx)) {
+			tx_index[tx->id] = std::make_pair(offset, block->height);
+		}
 		vnx::write(out, tx);
 	}
 	vnx::write(out, nullptr);

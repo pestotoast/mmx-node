@@ -55,6 +55,7 @@ public:
 	uint32_t tx_pool_limit = 1000000;
 	int32_t opencl_device = 0;
 	vnx::bool_t do_sync = true;
+	vnx::bool_t light_mode = false;
 	std::string storage_path;
 	std::string router_name = "Router";
 	std::string timelord_name = "TimeLord";
@@ -97,10 +98,12 @@ protected:
 	virtual vnx::optional<uint32_t> get_synced_height() const = 0;
 	virtual std::shared_ptr<const ::mmx::Block> get_block(const ::mmx::hash_t& hash) const = 0;
 	virtual std::shared_ptr<const ::mmx::Block> get_block_at(const uint32_t& height) const = 0;
+	virtual std::shared_ptr<const ::mmx::BlockHeader> get_header(const ::mmx::hash_t& hash) const = 0;
 	virtual std::shared_ptr<const ::mmx::BlockHeader> get_header_at(const uint32_t& height) const = 0;
 	virtual vnx::optional<::mmx::hash_t> get_block_hash(const uint32_t& height) const = 0;
 	virtual ::mmx::txo_info_t get_txo_info(const ::mmx::txio_key_t& key) const = 0;
 	virtual vnx::optional<uint32_t> get_tx_height(const ::mmx::hash_t& id) const = 0;
+	virtual std::vector<::mmx::hash_t> get_tx_ids_at(const uint32_t& height) const = 0;
 	virtual void add_block(std::shared_ptr<const ::mmx::Block> block) = 0;
 	virtual void add_transaction(std::shared_ptr<const ::mmx::Transaction> tx) = 0;
 	virtual std::shared_ptr<const ::mmx::Transaction> get_transaction(const ::mmx::hash_t& id) const = 0;

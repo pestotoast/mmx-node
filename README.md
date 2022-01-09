@@ -146,6 +146,19 @@ If you have a slow CPU this is recommended and maybe even needed to stay in sync
 
 Any config changes require a node restart to become effective.
 
+### Light Node
+
+The node can be run in a "light mode" which filters out any transactions which don't concern your addresses, in addition to disabling message relaying, VDF verification and transaction verification.
+A light node relies on other full nodes to validate transactions and only checks that transactions of interest were included in blocks with valid proof (aka SPV, Simplified Payment Verification). 
+
+To run a light node:
+```
+./run_light_node.sh
+```
+Light node data will end up in `testnet3/light_node/` by default, there is no conflict with data from a full node.
+
+Note: You cannot add a new wallet afterwards (or increase the number of addresses), if you do so you have to re-sync from scratch.
+
 ### Reducing network traffic
 
 If you have a slow internet connection or want to reduce traffic in general you can lower the number of connections in `config/local/Router.json`.
@@ -158,6 +171,9 @@ For example to run at the bare recommended minimum:
 ```
 `num_peers_out` is the maximum number of outgoing connections to synced peers. `max_connections` is the maximum total number of connections.
 Keep in mind this will increase your chances of losing sync.
+
+Another more drastic measure is to disable relaying messages to other nodes, by setting `do_relay` to `false` in `config/local/Router.json`.
+However this will hurt the network, so please only disable it if absolutely necessary.
 
 ### Running in background
 
@@ -194,8 +210,6 @@ To run a remote farmer with it's own wallet and harvester:
 ```
 Alternatively to set the node address permanently: `echo node.ip:11330 > config/local/node`
 
-To use the CLI with the remote farmer replace `farm` with `rfarm`, for example: `mmx rfarm info`
-
 To disable the built-in farmer in the node: `echo false > config/local/farmer`
 
 ### Remote Harvester
@@ -206,13 +220,13 @@ To run a remote harvester, while connecting to a node:
 ```
 Alternatively to set the node address permanently: `echo node.ip:11330 > config/local/node`
 
-To use the CLI with the remote harvester replace `farm` with `rfarm` and use port `11334`, for example: `mmx rfarm info -n :11334`
-
 To run a remote harvester, while connecting to a remote farmer:
 ```
 ./run_harvester.sh -n farmer.ip:11333
 ```
 Alternatively to set the farmer address permanently: `echo farmer.ip:11333 > config/local/node`
+
+To disable the built-in harvester in the node: `echo false > config/local/harvester`
 
 ### Remote Timelord
 
@@ -232,8 +246,6 @@ To run a remote wallet:
 ```
 Alternatively to set the node address permanently: `echo node.ip:11330 > config/local/node`
 
-To use the remote wallet with the CLI replace `wallet` with `rwallet`, for example: `mmx rwallet show`
-
 To disable the built-in wallet in the node:
 ```
 echo false > config/local/wallet
@@ -249,11 +261,6 @@ To run an SSH tunnel to connect to a node from another machine (such as from a r
 ssh -N -L 11330:localhost:11330 user@node.ip
 ```
 This will forward local port `11330` to port `11330` on the node's machine.
-
-The same can be done for port `11331`, which allows to use the normal CLI remotely:
-```
-ssh -N -L 11331:localhost:11331 user@node.ip
-```
 
 ## Plotting
 
@@ -283,6 +290,8 @@ To add a plot directory add the path to `plot_dirs` array in `config/local/Harve
 ```
 
 ## Installation
+
+Note: OpenCL packages are optional, ie. `ocl-icd-opencl-dev`, etc.
 
 Ubuntu Linux:
 ```
