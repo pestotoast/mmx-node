@@ -261,7 +261,7 @@ vnx::optional<uint32_t> Node::get_tx_height(const hash_t& id) const
 	return nullptr;
 }
 
-txo_info_t Node::get_txo_info(const txio_key_t& key) const
+vnx::optional<txo_info_t> Node::get_txo_info(const txio_key_t& key) const
 {
 	{
 		auto iter = utxo_map.find(key);
@@ -289,7 +289,16 @@ txo_info_t Node::get_txo_info(const txio_key_t& key) const
 			return info;
 		}
 	}
-	throw std::logic_error("no such txo entry");
+	return nullptr;
+}
+
+std::vector<vnx::optional<txo_info_t>> Node::get_txo_infos(const std::vector<txio_key_t>& keys) const
+{
+	std::vector<vnx::optional<txo_info_t>> res;
+	for(const auto& key : keys) {
+		res.push_back(get_txo_info(key));
+	}
+	return res;
 }
 
 std::shared_ptr<const Transaction> Node::get_transaction(const hash_t& id) const
@@ -313,9 +322,9 @@ std::shared_ptr<const Transaction> Node::get_transaction(const hash_t& id) const
 					return tx;
 				}
 				if(auto header = std::dynamic_pointer_cast<BlockHeader>(value)) {
-					if(auto tx = std::dynamic_pointer_cast<const Transaction>(header->tx_base)) {
+					if(auto tx = header->tx_base) {
 						if(tx->id == id) {
-							return tx;
+							return std::dynamic_pointer_cast<const Transaction>(tx);
 						}
 					}
 				}
@@ -323,6 +332,15 @@ std::shared_ptr<const Transaction> Node::get_transaction(const hash_t& id) const
 			catch(...) {
 				block_chain->seek_to(last_pos);
 				throw;
+			}
+		}
+	}
+	for(const auto& entry : fork_tree) {
+		if(const auto& block = entry.second->block) {
+			if(const auto& tx = block->tx_base) {
+				if(tx->id == id) {
+					return std::dynamic_pointer_cast<const Transaction>(tx);
+				}
 			}
 		}
 	}
@@ -382,6 +400,7 @@ std::vector<tx_entry_t> Node::get_history_for(const std::vector<addr_t>& address
 			if(amount[utxo.contract] > 0) {
 				tx_entry_t entry;
 				entry.height = utxo.height;
+				entry.txid = iter.first;
 				entry.type = tx_type_e::RECEIVE;
 				entry.contract = utxo.contract;
 				entry.address = utxo.address;
@@ -397,6 +416,7 @@ std::vector<tx_entry_t> Node::get_history_for(const std::vector<addr_t>& address
 							if(amount[utxo.contract] < 0 && !addr_set.count(utxo.address)) {
 								tx_entry_t entry;
 								entry.height = *height;
+								entry.txid = iter.first;
 								entry.type = tx_type_e::SEND;
 								entry.contract = utxo.contract;
 								entry.address = utxo.address;
@@ -1504,6 +1524,9 @@ uint64_t Node::validate(std::shared_ptr<const Transaction> tx, std::shared_ptr<c
 	if(block) {
 		if(!tx->execute.empty()) {
 			throw std::logic_error("coin base cannot have operations");
+		}
+		if(!tx->exec_outputs.empty()) {
+			throw std::logic_error("coin base cannot have execution outputs");
 		}
 		if(tx->outputs.size() > params->max_tx_base_out) {
 			throw std::logic_error("coin base has too many outputs");
