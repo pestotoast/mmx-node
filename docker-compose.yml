@@ -3,17 +3,18 @@ version: '2.3'
 volumes: mmx-data
 
 services:
-  mmx:
-    image: pestotoast/mmx
+ mmx:
+    image: ghcr.io/pestotoast/mmx-node
     restart: always
+    container_name: mmx-node
     group_add:
       - 109
-      - 44
+      - video
     devices:
       - /dev/dri:/dev/dri
-#    entrypoint: /mmx-node/run_node.sh
-    volumes: 
-      - mmx-data:/mmx-node
-      - /mnt/plots/00/mmx:/mnt/plots/00
-      - /mnt/plots/01/mmx:/mnt/plots/01
-      - /mnt/plots/02/mmx:/mnt/plots/02
+    #entrypoint: /mmx-node/run_node.sh --timelord 0
+    volumes:
+      - /mnt/plots:/mnt/plots:ro
+      - ./data/mmx/testnet3:/mmx-node/testnet3
+      - ./config/mmx:/mmx-node/config/local
+      - ./data/mmx/wallet.dat:/mmx-node/wallet.da
