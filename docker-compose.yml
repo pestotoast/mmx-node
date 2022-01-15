@@ -1,20 +1,19 @@
 version: '2.3'
 
-volumes: mmx-data
-
 services:
  mmx:
     image: ghcr.io/pestotoast/mmx-node
     restart: always
     container_name: mmx-node
+    #cpus: 1 # uncomment to limit cpu usage
     group_add:
-      - 109
+      - 109 #might have to change those to the gid of your 'render' group on your local system
       - video
     devices:
       - /dev/dri:/dev/dri
-    #entrypoint: /mmx-node/run_node.sh --timelord 0
+    #entrypoint: /mmx-node/run_node.sh --timelord 0 # uncomment to disable timelord
     volumes:
       - /mnt/plots:/mnt/plots:ro
-      - ./data/mmx/testnet3:/mmx-node/testnet3
+      - ./data/mmx/testnet3:/mmx-node/testnet3 # use correct testnet version here
       - ./config/mmx:/mmx-node/config/local
-      - ./data/mmx/wallet.dat:/mmx-node/wallet.da
+      - ./data/mmx/wallet.dat:/mmx-node/wallet.dat
