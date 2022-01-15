@@ -23,6 +23,8 @@ Harvester::Harvester(const std::string& _vnx_name)
 void Harvester::init()
 {
 	vnx::open_pipe(vnx_name, this, max_queue_ms);
+
+	subscribe(input_challenges, max_queue_ms);
 }
 
 void Harvester::main()
@@ -32,16 +34,14 @@ void Harvester::main()
 	}
 	params = get_params();
 
-	subscribe(input_challenges, max_queue_ms);
-
 	set_timer_millis(10000, std::bind(&Harvester::update, this));
 
 	if(reload_interval > 0) {
 		set_timer_millis(int64_t(reload_interval) * 1000, std::bind(&Harvester::reload, this));
 	}
 
-	update();
 	reload();
+	update();
 
 	Super::main();
 }
@@ -160,14 +160,45 @@ std::shared_ptr<const FarmInfo> Harvester::get_farm_info() const
 	return info;
 }
 
+void Harvester::find_plot_dirs(const std::vector<std::string>& dirs, std::vector<std::string>& all_dirs) const
+{
+	std::vector<std::string> sub_dirs;
+	for(const auto& path : dirs) {
+		vnx::Directory dir(path);
+		try {
+			dir.open();
+			for(const auto& file : dir.files()) {
+				if(file && file->get_extension() == ".plot") {
+					all_dirs.push_back(path);
+					break;
+				}
+			}
+			for(const auto& sub_dir : dir.directories()) {
+				sub_dirs.push_back(sub_dir->get_path());
+			}
+		} catch(const std::exception& ex) {
+			log(WARN) << ex.what();
+		}
+	}
+	if(!sub_dirs.empty()) {
+		find_plot_dirs(sub_dirs, all_dirs);
+	}
+}
+
 void Harvester::reload()
 {
+	std::vector<std::string> all_dirs;
+	if(recursive_search) {
+		find_plot_dirs(plot_dirs, all_dirs);
+	} else {
+		all_dirs = plot_dirs;
+	}
 	std::vector<std::pair<std::shared_ptr<vnx::File>, std::shared_ptr<chiapos::DiskProver>>> plots;
 
 #pragma omp parallel for num_threads(num_threads)
-	for(size_t i = 0; i < plot_dirs.size(); ++i)
+	for(size_t i = 0; i < all_dirs.size(); ++i)
 	{
-		vnx::Directory dir(plot_dirs[i]);
+		vnx::Directory dir(all_dirs[i]);
 		try {
 			dir.open();
 			for(const auto& file : dir.files()) {
@@ -214,6 +245,7 @@ void Harvester::update()
 	catch(const std::exception& ex) {
 		log(WARN) << "Failed to contact farmer: " << ex.what();
 	}
+	publish(get_farm_info(), output_info);
 }
 
 

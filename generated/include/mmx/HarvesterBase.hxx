@@ -17,12 +17,14 @@ class HarvesterBase : public ::vnx::Module {
 public:
 	
 	::vnx::TopicPtr input_challenges = "harvester.challenges";
+	::vnx::TopicPtr output_info = "harvester.info";
 	::vnx::TopicPtr output_proofs = "harvester.proof";
 	std::vector<std::string> plot_dirs;
 	std::string farmer_server = "Farmer";
 	int32_t max_queue_ms = 10000;
 	int32_t reload_interval = 3600;
 	uint32_t num_threads = 0;
+	vnx::bool_t recursive_search = true;
 	
 	typedef ::vnx::Module Super;
 	

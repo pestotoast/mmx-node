@@ -148,7 +148,7 @@ Any config changes require a node restart to become effective.
 
 ### Light Node
 
-The node can be run in a "light mode" which filters out any transactions which don't concern your addresses, in addition to disabling message relaying, VDF verification and transaction verification.
+The node can be run in a "light mode" which filters out any transactions which don't concern your addresses, in addition to disabling message relaying and transaction verification.
 A light node relies on other full nodes to validate transactions and only checks that transactions of interest were included in blocks with valid proof (aka SPV, Simplified Payment Verification). 
 
 To run a light node:
@@ -271,7 +271,8 @@ mmx wallet keys [-j index]
 
 The node needs to be running for this command to work. (`-j` to specify the index of a non-default wallet)
 
-Then use the latest version of my plotter with `-x 11337` argument: https://github.com/madMAx43v3r/chia-plotter
+Then use the latest version of my plotter with `-x 11337` argument: https://github.com/madMAx43v3r/chia-plotter \
+For windows: https://github.com/MMX-World/mmx-plotter/releases/tag/v0.0.1
 
 It will show the following output at the beginning to confirm the new plot format (from testnet3 onwards):
 ```
@@ -288,8 +289,11 @@ To add a plot directory add the path to `plot_dirs` array in `config/local/Harve
 	"plot_dirs": ["/mnt/drive1/plots/", "/mnt/drive2/plots/"]
 }
 ```
+Directories are searched recursively by default. To disable recursive search you can set `recursive_search` to `false` in `Harvester.json`.
 
 ## Installation
+
+Windows binaries: https://github.com/stotiks/mmx-node/releases/tag/v0.0.1
 
 Note: OpenCL packages are optional, ie. `ocl-icd-opencl-dev`, etc.
 

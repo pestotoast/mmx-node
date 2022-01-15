@@ -99,10 +99,13 @@ private:
 		bool is_invalid = false;
 		bool is_verified = false;
 		bool is_finalized = false;
+		bool is_vdf_verified = false;
 		bool is_proof_verified = false;
 		bool has_weak_proof = false;
 		uint32_t proof_score = -1;
 		int64_t recv_time = 0;
+		uint128_t weight = 0;
+		uint128_t total_weight = 0;
 		std::weak_ptr<fork_t> prev;
 		std::shared_ptr<const Block> block;
 		std::shared_ptr<const BlockHeader> diff_block;
@@ -126,6 +129,8 @@ private:
 
 	void check_vdfs();
 
+	void add_fork(std::shared_ptr<fork_t> fork);
+
 	bool include_transaction(std::shared_ptr<const Transaction> tx);
 
 	bool make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<const ProofResponse> response);
@@ -141,8 +146,6 @@ private:
 	std::shared_ptr<fork_t> find_best_fork(std::shared_ptr<const BlockHeader> root = nullptr, const uint32_t* at_height = nullptr) const;
 
 	std::vector<std::shared_ptr<fork_t>> get_fork_line(std::shared_ptr<fork_t> fork_head = nullptr) const;
-
-	bool calc_fork_weight(std::shared_ptr<const BlockHeader> root, std::shared_ptr<fork_t> fork, int64_t& total_weight) const;
 
 	void validate(std::shared_ptr<const Block> block) const;
 
@@ -168,6 +171,8 @@ private:
 
 	void verify_vdf_task(std::shared_ptr<const ProofOfTime> proof, const vdf_point_t& prev) const noexcept;
 
+	void check_vdf_task(std::shared_ptr<fork_t> fork, std::shared_ptr<const BlockHeader> prev, std::shared_ptr<const BlockHeader> infuse) const noexcept;
+
 	void apply(std::shared_ptr<const Block> block) noexcept;
 
 	void apply(std::shared_ptr<const Block> block, std::shared_ptr<const Transaction> tx, size_t index, change_log_t& log) noexcept;
@@ -175,6 +180,8 @@ private:
 	bool revert() noexcept;
 
 	std::shared_ptr<const BlockHeader> get_root() const;
+
+	std::shared_ptr<const BlockHeader> get_peak() const;
 
 	std::shared_ptr<fork_t> find_fork(const hash_t& hash) const;
 
@@ -212,6 +219,7 @@ private:
 	std::set<std::pair<addr_t, txio_key_t>> addr_map;								// [addr => utxo keys] (finalized + unspent only)
 	std::unordered_map<addr_t, std::unordered_set<txio_key_t>> taddr_map;			// [addr => utxo keys] (pending + unspent only)
 
+	std::multimap<uint32_t, std::shared_ptr<fork_t>> fork_index;					// [height => fork]
 	std::unordered_map<hash_t, std::shared_ptr<fork_t>> fork_tree;					// pending blocks
 	std::map<uint32_t, std::shared_ptr<const BlockHeader>> history;					// [height => block header] (finalized only)
 	std::unordered_map<addr_t, std::shared_ptr<const Contract>> contracts;			// current contract state
@@ -232,10 +240,9 @@ private:
 	std::unordered_map<uint32_t, std::pair<int64_t, hash_t>> block_index;			// [height => [file offset, block hash]]
 
 	uint32_t sync_pos = 0;									// current sync height
-	uint32_t sync_peak = -1;								// max height we can sync
-	uint32_t sync_update = 0;								// height of last update
 	uint32_t sync_retry = 0;
 	std::set<uint32_t> sync_pending;						// set of heights
+	vnx::optional<uint32_t> sync_peak;						// max height we can sync
 
 	std::shared_ptr<vnx::Timer> stuck_timer;
 	std::shared_ptr<vnx::Timer> update_timer;
@@ -245,7 +252,7 @@ private:
 	std::shared_ptr<vnx::addons::HttpInterface<Node>> http;
 
 	mutable std::mutex vdf_mutex;
-	uint32_t vdf_verify_pending = 0;						// height
+	std::unordered_set<uint32_t> vdf_verify_pending;						// height
 	std::shared_ptr<OCL_VDF> opencl_vdf[2];
 	std::shared_ptr<vnx::ThreadPool> vdf_threads;
 
