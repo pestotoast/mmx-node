@@ -24,6 +24,7 @@ module Node implements vnx.addons.HttpComponent {
 	
 	uint max_history = 1000;
 	uint tx_pool_limit = 1000000;
+	uint max_contract_cache = 1000;
 	uint max_fork_length = 100000;			// to keep in memory at most
 	
 	uint max_sync_jobs = 64;				// number of parallel requests
@@ -39,12 +40,16 @@ module Node implements vnx.addons.HttpComponent {
 	bool light_mode = false;
 	
 	string storage_path;
+	string database_path = "db/";
 	string router_name = "Router";
 	string timelord_name = "TimeLord";
 	
 	
 	@Permission(permission_e.PUBLIC)
 	ChainParams* get_params() const;
+	
+	@Permission(permission_e.PUBLIC)
+	NetworkInfo* get_network_info() const;
 	
 	@Permission(permission_e.PUBLIC)
 	uint get_height() const;
@@ -77,14 +82,26 @@ module Node implements vnx.addons.HttpComponent {
 	optional<uint> get_tx_height(hash_t id) const;
 	
 	@Permission(permission_e.PUBLIC)
+	optional<tx_info_t> get_tx_info(hash_t id) const;
+	
+	@Permission(permission_e.PUBLIC)
 	vector<hash_t> get_tx_ids_at(uint height) const;
 	
 	void add_block(Block* block);
 	
-	void add_transaction(Transaction* tx);
+	void add_transaction(Transaction* tx, bool pre_validate);
 	
 	@Permission(permission_e.PUBLIC)
-	Transaction* get_transaction(hash_t id) const;
+	Contract* get_contract(addr_t address) const;
+	
+	@Permission(permission_e.PUBLIC)
+	vector<Contract*> get_contracts(vector<addr_t> addresses) const;
+	
+	@Permission(permission_e.PUBLIC)
+	map<addr_t, Contract*> get_contracts_owned(vector<addr_t> owners) const;
+	
+	@Permission(permission_e.PUBLIC)
+	Transaction* get_transaction(hash_t id, bool include_pending) const;
 	
 	@Permission(permission_e.PUBLIC)
 	vector<Transaction*> get_transactions(vector<hash_t> ids) const;
@@ -93,19 +110,19 @@ module Node implements vnx.addons.HttpComponent {
 	vector<tx_entry_t> get_history_for(vector<addr_t> addresses, int since) const;
 	
 	@Permission(permission_e.PUBLIC)
-	Contract* get_contract(addr_t address) const;
+	ulong get_balance(addr_t address, addr_t contract, uint min_confirm = 1) const;
 	
 	@Permission(permission_e.PUBLIC)
-	ulong get_balance(addr_t address, addr_t contract) const;
+	ulong get_total_balance(vector<addr_t> addresses, addr_t contract, uint min_confirm = 1) const;
 	
 	@Permission(permission_e.PUBLIC)
-	ulong get_total_balance(vector<addr_t> addresses, addr_t contract) const;
+	map<addr_t, ulong> get_total_balances(vector<addr_t> addresses, uint min_confirm = 1) const;
 	
 	@Permission(permission_e.PUBLIC)
 	ulong get_total_supply(addr_t contract) const;
 	
 	@Permission(permission_e.PUBLIC)
-	vector<utxo_entry_t> get_utxo_list(vector<addr_t> addresses) const;
+	vector<utxo_entry_t> get_utxo_list(vector<addr_t> addresses, uint min_confirm = 1) const;
 	
 	@Permission(permission_e.PUBLIC)
 	vector<stxo_entry_t> get_stxo_list(vector<addr_t> addresses) const;

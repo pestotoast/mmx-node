@@ -13,7 +13,7 @@ namespace mmx {
 
 
 const vnx::Hash64 Wallet_get_history_return::VNX_TYPE_HASH(0xb1b8c9a446a81b1full);
-const vnx::Hash64 Wallet_get_history_return::VNX_CODE_HASH(0x6900162d33aa0493ull);
+const vnx::Hash64 Wallet_get_history_return::VNX_CODE_HASH(0x110c41184a9bff3bull);
 
 vnx::Hash64 Wallet_get_history_return::get_type_hash() const {
 	return VNX_TYPE_HASH;
@@ -87,8 +87,6 @@ vnx::Variant Wallet_get_history_return::get_field(const std::string& _name) cons
 void Wallet_get_history_return::set_field(const std::string& _name, const vnx::Variant& _value) {
 	if(_name == "_ret_0") {
 		_value.to(_ret_0);
-	} else {
-		throw std::logic_error("no such field: '" + _name + "'");
 	}
 }
 
@@ -116,7 +114,7 @@ std::shared_ptr<vnx::TypeCode> Wallet_get_history_return::static_create_type_cod
 	auto type_code = std::make_shared<vnx::TypeCode>();
 	type_code->name = "mmx.Wallet.get_history.return";
 	type_code->type_hash = vnx::Hash64(0xb1b8c9a446a81b1full);
-	type_code->code_hash = vnx::Hash64(0x6900162d33aa0493ull);
+	type_code->code_hash = vnx::Hash64(0x110c41184a9bff3bull);
 	type_code->is_native = true;
 	type_code->is_class = true;
 	type_code->is_return = true;

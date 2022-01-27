@@ -3,6 +3,7 @@
 
 #include <mmx/package.hxx>
 #include <mmx/Operation.hxx>
+#include <mmx/ChainParams.hxx>
 #include <mmx/Solution.hxx>
 #include <mmx/addr_t.hpp>
 #include <mmx/hash_t.hpp>
@@ -109,8 +110,6 @@ void Operation::set_field(const std::string& _name, const vnx::Variant& _value) 
 		_value.to(address);
 	} else if(_name == "solution") {
 		_value.to(solution);
-	} else {
-		throw std::logic_error("no such field: '" + _name + "'");
 	}
 }
 

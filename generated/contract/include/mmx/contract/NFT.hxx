@@ -5,9 +5,11 @@
 #define INCLUDE_mmx_contract_NFT_HXX_
 
 #include <mmx/contract/package.hxx>
+#include <mmx/ChainParams.hxx>
 #include <mmx/Contract.hxx>
-#include <mmx/contract/Condition.hxx>
+#include <mmx/addr_t.hpp>
 #include <mmx/hash_t.hpp>
+#include <vnx/Object.hpp>
 
 
 namespace mmx {
@@ -16,10 +18,9 @@ namespace contract {
 class NFT : public ::mmx::Contract {
 public:
 	
-	std::shared_ptr<const ::mmx::Contract> owner;
-	std::shared_ptr<const ::mmx::contract::Condition> transfer_cond;
-	vnx::bool_t is_burnable = 0;
-	vnx::bool_t is_transferable = 0;
+	::mmx::addr_t creator;
+	vnx::optional<::mmx::addr_t> parent;
+	::vnx::Object data;
 	
 	typedef ::mmx::Contract Super;
 	
@@ -34,6 +35,10 @@ public:
 	std::string get_type_name() const override;
 	const vnx::TypeCode* get_type_code() const override;
 	
+	virtual vnx::bool_t is_valid() const override;
+	virtual ::mmx::hash_t calc_hash() const override;
+	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const override;
+	
 	static std::shared_ptr<NFT> create();
 	std::shared_ptr<vnx::Value> clone() const override;
 	
@@ -43,6 +48,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -58,6 +65,16 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void NFT::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<NFT>(4);
+	_visitor.type_field("version", 0); _visitor.accept(version);
+	_visitor.type_field("creator", 1); _visitor.accept(creator);
+	_visitor.type_field("parent", 2); _visitor.accept(parent);
+	_visitor.type_field("data", 3); _visitor.accept(data);
+	_visitor.template type_end<NFT>(4);
+}
 
 
 } // namespace mmx

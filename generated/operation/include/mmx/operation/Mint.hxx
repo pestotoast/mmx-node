@@ -5,6 +5,7 @@
 #define INCLUDE_mmx_operation_Mint_HXX_
 
 #include <mmx/operation/package.hxx>
+#include <mmx/ChainParams.hxx>
 #include <mmx/Operation.hxx>
 #include <mmx/addr_t.hpp>
 #include <mmx/hash_t.hpp>
@@ -15,6 +16,7 @@ namespace operation {
 
 class Mint : public ::mmx::Operation {
 public:
+	static const uint64_t max_amount = 1000000000000;
 	
 	::mmx::addr_t target;
 	uint64_t amount = 0;
@@ -32,6 +34,10 @@ public:
 	std::string get_type_name() const override;
 	const vnx::TypeCode* get_type_code() const override;
 	
+	virtual vnx::bool_t is_valid() const override;
+	virtual ::mmx::hash_t calc_hash() const override;
+	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const override;
+	
 	static std::shared_ptr<Mint> create();
 	std::shared_ptr<vnx::Value> clone() const override;
 	
@@ -41,6 +47,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -56,6 +64,17 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void Mint::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<Mint>(5);
+	_visitor.type_field("version", 0); _visitor.accept(version);
+	_visitor.type_field("address", 1); _visitor.accept(address);
+	_visitor.type_field("solution", 2); _visitor.accept(solution);
+	_visitor.type_field("target", 3); _visitor.accept(target);
+	_visitor.type_field("amount", 4); _visitor.accept(amount);
+	_visitor.template type_end<Mint>(5);
+}
 
 
 } // namespace mmx

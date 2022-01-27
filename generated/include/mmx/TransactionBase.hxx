@@ -5,6 +5,7 @@
 #define INCLUDE_mmx_TransactionBase_HXX_
 
 #include <mmx/package.hxx>
+#include <mmx/ChainParams.hxx>
 #include <mmx/hash_t.hpp>
 #include <vnx/Value.h>
 
@@ -30,6 +31,7 @@ public:
 	const vnx::TypeCode* get_type_code() const override;
 	
 	virtual ::mmx::hash_t calc_hash() const;
+	virtual uint64_t calc_cost(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const;
 	
 	static std::shared_ptr<TransactionBase> create();
 	std::shared_ptr<vnx::Value> clone() const override;
@@ -40,6 +42,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -55,6 +59,13 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void TransactionBase::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<TransactionBase>(1);
+	_visitor.type_field("id", 0); _visitor.accept(id);
+	_visitor.template type_end<TransactionBase>(1);
+}
 
 
 } // namespace mmx

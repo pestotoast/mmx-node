@@ -5,11 +5,16 @@
 #define INCLUDE_mmx_WalletBase_HXX_
 
 #include <mmx/package.hxx>
+#include <mmx/Contract.hxx>
 #include <mmx/FarmerKeys.hxx>
+#include <mmx/Solution.hxx>
+#include <mmx/Transaction.hxx>
 #include <mmx/addr_t.hpp>
 #include <mmx/hash_t.hpp>
+#include <mmx/spend_options_t.hxx>
 #include <mmx/stxo_entry_t.hxx>
 #include <mmx/tx_entry_t.hxx>
+#include <mmx/txio_key_t.hxx>
 #include <mmx/utxo_entry_t.hxx>
 #include <vnx/Module.h>
 #include <vnx/addons/HttpData.hxx>
@@ -27,6 +32,7 @@ public:
 	std::string node_server = "Node";
 	uint32_t num_addresses = 100;
 	int32_t utxo_timeout_ms = 1000;
+	vnx::bool_t enable_bls = true;
 	
 	typedef ::vnx::Module Super;
 	
@@ -44,6 +50,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -61,13 +69,25 @@ public:
 protected:
 	using Super::handle;
 	
-	virtual ::mmx::hash_t send(const uint32_t& index, const uint64_t& amount, const ::mmx::addr_t& dst_addr, const ::mmx::addr_t& contract) const = 0;
-	virtual std::vector<::mmx::utxo_entry_t> get_utxo_list(const uint32_t& index) const = 0;
-	virtual std::vector<::mmx::utxo_entry_t> get_utxo_list_for(const uint32_t& index, const ::mmx::addr_t& contract) const = 0;
+	virtual ::mmx::hash_t send(const uint32_t& index, const uint64_t& amount, const ::mmx::addr_t& dst_addr, const ::mmx::addr_t& currency, const ::mmx::spend_options_t& options) const = 0;
+	virtual ::mmx::hash_t send_from(const uint32_t& index, const uint64_t& amount, const ::mmx::addr_t& dst_addr, const ::mmx::addr_t& src_addr, const ::mmx::addr_t& currency, const ::mmx::spend_options_t& options) const = 0;
+	virtual ::mmx::hash_t mint(const uint32_t& index, const uint64_t& amount, const ::mmx::addr_t& dst_addr, const ::mmx::addr_t& currency, const ::mmx::spend_options_t& options) const = 0;
+	virtual ::mmx::hash_t deploy(const uint32_t& index, std::shared_ptr<const ::mmx::Contract> contract, const ::mmx::spend_options_t& options) const = 0;
+	virtual std::shared_ptr<const ::mmx::Transaction> sign_off(const uint32_t& index, std::shared_ptr<const ::mmx::Transaction> tx, const vnx::bool_t& cover_fee) const = 0;
+	virtual std::shared_ptr<const ::mmx::Solution> sign_msg(const uint32_t& index, const ::mmx::addr_t& address, const ::mmx::hash_t& msg) const = 0;
+	virtual void reserve(const uint32_t& index, const std::vector<::mmx::txio_key_t>& keys) = 0;
+	virtual void release(const uint32_t& index, const std::vector<::mmx::txio_key_t>& keys) = 0;
+	virtual void release_all() = 0;
+	virtual std::vector<::mmx::utxo_entry_t> get_utxo_list(const uint32_t& index, const uint32_t& min_confirm) const = 0;
+	virtual std::vector<::mmx::utxo_entry_t> get_utxo_list_for(const uint32_t& index, const ::mmx::addr_t& currency, const uint32_t& min_confirm) const = 0;
 	virtual std::vector<::mmx::stxo_entry_t> get_stxo_list(const uint32_t& index) const = 0;
-	virtual std::vector<::mmx::stxo_entry_t> get_stxo_list_for(const uint32_t& index, const ::mmx::addr_t& contract) const = 0;
+	virtual std::vector<::mmx::stxo_entry_t> get_stxo_list_for(const uint32_t& index, const ::mmx::addr_t& currency) const = 0;
+	virtual std::vector<::mmx::utxo_entry_t> gather_utxos_for(const uint32_t& index, const uint64_t& amount, const ::mmx::addr_t& currency, const ::mmx::spend_options_t& options) const = 0;
 	virtual std::vector<::mmx::tx_entry_t> get_history(const uint32_t& index, const int32_t& since) const = 0;
-	virtual uint64_t get_balance(const uint32_t& index, const ::mmx::addr_t& contract) const = 0;
+	virtual uint64_t get_balance(const uint32_t& index, const ::mmx::addr_t& currency, const uint32_t& min_confirm) const = 0;
+	virtual std::map<::mmx::addr_t, uint64_t> get_balances(const uint32_t& index, const uint32_t& min_confirm) const = 0;
+	virtual std::map<::mmx::addr_t, uint64_t> get_reserved_balances(const uint32_t& index, const uint32_t& min_confirm) const = 0;
+	virtual std::map<::mmx::addr_t, std::shared_ptr<const ::mmx::Contract>> get_contracts(const uint32_t& index) const = 0;
 	virtual ::mmx::addr_t get_address(const uint32_t& index, const uint32_t& offset) const = 0;
 	virtual std::vector<::mmx::addr_t> get_all_addresses(const int32_t& index) const = 0;
 	virtual ::mmx::hash_t get_master_seed(const uint32_t& index) const = 0;
@@ -82,6 +102,18 @@ protected:
 	std::shared_ptr<vnx::Value> vnx_call_switch(std::shared_ptr<const vnx::Value> _method, const vnx::request_id_t& _request_id) override;
 	
 };
+
+template<typename T>
+void WalletBase::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<WalletBase>(6);
+	_visitor.type_field("key_files", 0); _visitor.accept(key_files);
+	_visitor.type_field("storage_path", 1); _visitor.accept(storage_path);
+	_visitor.type_field("node_server", 2); _visitor.accept(node_server);
+	_visitor.type_field("num_addresses", 3); _visitor.accept(num_addresses);
+	_visitor.type_field("utxo_timeout_ms", 4); _visitor.accept(utxo_timeout_ms);
+	_visitor.type_field("enable_bls", 5); _visitor.accept(enable_bls);
+	_visitor.template type_end<WalletBase>(6);
+}
 
 
 } // namespace mmx

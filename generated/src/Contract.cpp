@@ -3,9 +3,12 @@
 
 #include <mmx/package.hxx>
 #include <mmx/Contract.hxx>
+#include <mmx/ChainParams.hxx>
+#include <mmx/Context.hxx>
 #include <mmx/Operation.hxx>
-#include <mmx/Solution.hxx>
+#include <mmx/addr_t.hpp>
 #include <mmx/hash_t.hpp>
+#include <mmx/tx_out_t.hxx>
 #include <vnx/Value.h>
 
 #include <vnx/vnx.h>
@@ -89,8 +92,6 @@ vnx::Variant Contract::get_field(const std::string& _name) const {
 void Contract::set_field(const std::string& _name, const vnx::Variant& _value) {
 	if(_name == "version") {
 		_value.to(version);
-	} else {
-		throw std::logic_error("no such field: '" + _name + "'");
 	}
 }
 

@@ -5,6 +5,7 @@
 #define INCLUDE_mmx_solution_PubKey_HXX_
 
 #include <mmx/solution/package.hxx>
+#include <mmx/ChainParams.hxx>
 #include <mmx/Solution.hxx>
 #include <mmx/pubkey_t.hpp>
 #include <mmx/signature_t.hpp>
@@ -32,6 +33,8 @@ public:
 	std::string get_type_name() const override;
 	const vnx::TypeCode* get_type_code() const override;
 	
+	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const override;
+	
 	static std::shared_ptr<PubKey> create();
 	std::shared_ptr<vnx::Value> clone() const override;
 	
@@ -41,6 +44,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -56,6 +61,16 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void PubKey::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<PubKey>(4);
+	_visitor.type_field("version", 0); _visitor.accept(version);
+	_visitor.type_field("is_contract", 1); _visitor.accept(is_contract);
+	_visitor.type_field("pubkey", 2); _visitor.accept(pubkey);
+	_visitor.type_field("signature", 3); _visitor.accept(signature);
+	_visitor.template type_end<PubKey>(4);
+}
 
 
 } // namespace mmx

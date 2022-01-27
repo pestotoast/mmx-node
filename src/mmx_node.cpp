@@ -11,6 +11,8 @@
 #include <mmx/Farmer.h>
 #include <mmx/Harvester.h>
 #include <mmx/Router.h>
+#include <mmx/WebAPI.h>
+#include <mmx/exchange/Client.h>
 #include <mmx/WalletClient.hxx>
 #include <mmx/secp256k1.hpp>
 #include <mmx/utils.h>
@@ -33,8 +35,8 @@ int main(int argc, char** argv)
 
 	const auto params = mmx::get_params();
 
-	if(params->vdf_seed == "test1" || params->vdf_seed == "test2") {
-		vnx::log_error() << "This version is not compatible with testnet1/2, please remove NETWORK file and try again to switch to testnet3.";
+	if(params->vdf_seed == "test1" || params->vdf_seed == "test2" || params->vdf_seed == "test3") {
+		vnx::log_error() << "This version is not compatible with testnet 1/2/3, please remove NETWORK file and try again to switch to testnet4.";
 		vnx::close();
 		return -1;
 	}
@@ -93,8 +95,14 @@ int main(int argc, char** argv)
 		module.start_detached();
 	}
 	if(with_wallet) {
-		vnx::Handle<mmx::Wallet> module = new mmx::Wallet("Wallet");
-		module.start_detached();
+		{
+			vnx::Handle<mmx::Wallet> module = new mmx::Wallet("Wallet");
+			module.start_detached();
+		}
+		{
+			vnx::Handle<mmx::exchange::Client> module = new mmx::exchange::Client("ExchClient");
+			module.start_detached();
+		}
 		{
 			vnx::Handle<vnx::Server> module = new vnx::Server("Server5", vnx::Endpoint::from_url(":11335"));
 			module.start_detached();
@@ -115,7 +123,12 @@ int main(int argc, char** argv)
 		vnx::write_config("light_address_set", light_set);
 	}
 	{
+		vnx::Handle<mmx::WebAPI> module = new mmx::WebAPI("WebAPI");
+		module.start_detached();
+	}
+	{
 		vnx::Handle<vnx::addons::HttpServer> module = new vnx::addons::HttpServer("HttpServer");
+		module->components["/wapi/"] = "WebAPI";
 		module->components["/api/node/"] = "Node";
 		module->components["/api/wallet/"] = "Wallet";
 		module.start_detached();
@@ -126,16 +139,20 @@ int main(int argc, char** argv)
 		module.start_detached();
 	}
 	if(with_timelord) {
-		vnx::Handle<mmx::TimeLord> module = new mmx::TimeLord("TimeLord");
-		module.start_detached();
+		{
+			vnx::Handle<mmx::TimeLord> module = new mmx::TimeLord("TimeLord");
+			module.start_detached();
+		}
 		{
 			vnx::Handle<vnx::Server> module = new vnx::Server("Server2", vnx::Endpoint::from_url(":11332"));
 			module.start_detached();
 		}
 	}
 	if(with_farmer) {
-		vnx::Handle<mmx::Farmer> module = new mmx::Farmer("Farmer");
-		module.start_detached();
+		{
+			vnx::Handle<mmx::Farmer> module = new mmx::Farmer("Farmer");
+			module.start_detached();
+		}
 		{
 			vnx::Handle<vnx::Server> module = new vnx::Server("Server3", vnx::Endpoint::from_url(":11333"));
 			module.start_detached();
@@ -150,6 +167,7 @@ int main(int argc, char** argv)
 	{
 		vnx::Handle<mmx::Node> module = new mmx::Node("Node");
 		module->storage_path = root_path + module->storage_path;
+		module->database_path = root_path + module->database_path;
 		module.start();
 		module.wait();
 	}

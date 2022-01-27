@@ -14,15 +14,25 @@ class Transaction extends TransactionBase {
 	
 	vector<Solution*> solutions;
 	
+	Contract* deploy;
+	
 	
 	void finalize();
 	
+	void merge_sign(Transaction* tx);
+	
 	bool is_valid() const;
+	
+	bool is_signed() const;
 	
 	hash_t calc_hash() const;
 	
 	Solution* get_solution(uint index) const;
 	
-	ulong calc_min_fee(ChainParams* params) const;
+	tx_out_t get_output(uint index) const;
+	
+	vector<tx_out_t> get_all_outputs() const;
+	
+	ulong calc_cost(ChainParams* params) const;
 	
 }

@@ -70,6 +70,10 @@ std::string addr_t::to_string() const
 inline
 void addr_t::from_string(const std::string& addr)
 {
+	if(addr == "MMX") {
+		*this = addr_t();
+		return;
+	}
 	const auto res = bech32::decode(addr);
 	if(res.encoding != bech32::Bech32m) {
 		throw std::logic_error("invalid address: " + addr);
@@ -111,6 +115,13 @@ void read(vnx::TypeInput& in, mmx::addr_t& value, const vnx::TypeCode* type_code
 			} catch(...) {
 				value = mmx::addr_t();
 			}
+			break;
+		}
+		case CODE_DYNAMIC:
+		case CODE_ALT_DYNAMIC: {
+			vnx::Variant tmp;
+			vnx::read(in, tmp, type_code, code);
+			tmp.to(value);
 			break;
 		}
 		default:

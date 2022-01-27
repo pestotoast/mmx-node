@@ -4,4 +4,9 @@ class Solution {
 	
 	uint version;
 	
+	bool is_contract;
+	
+	
+	ulong calc_min_fee(ChainParams* params) const;
+	
 }

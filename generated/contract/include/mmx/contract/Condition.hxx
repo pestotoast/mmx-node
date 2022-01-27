@@ -5,9 +5,11 @@
 #define INCLUDE_mmx_contract_Condition_HXX_
 
 #include <mmx/contract/package.hxx>
+#include <mmx/ChainParams.hxx>
 #include <mmx/addr_t.hpp>
 #include <mmx/contract/compare_e.hxx>
 #include <mmx/contract/condition_e.hxx>
+#include <mmx/hash_t.hpp>
 #include <vnx/Value.h>
 
 
@@ -17,11 +19,11 @@ namespace contract {
 class Condition : public ::vnx::Value {
 public:
 	
+	uint32_t version = 0;
 	::mmx::contract::condition_e type;
 	::mmx::contract::compare_e compare;
 	vnx::optional<int64_t> value;
-	vnx::optional<::mmx::addr_t> address;
-	vnx::optional<::mmx::addr_t> contract;
+	vnx::optional<::mmx::addr_t> currency;
 	std::vector<std::shared_ptr<const ::mmx::contract::Condition>> nested;
 	
 	typedef ::vnx::Value Super;
@@ -37,6 +39,10 @@ public:
 	std::string get_type_name() const override;
 	const vnx::TypeCode* get_type_code() const override;
 	
+	virtual vnx::bool_t is_valid() const;
+	virtual ::mmx::hash_t calc_hash() const;
+	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const;
+	
 	static std::shared_ptr<Condition> create();
 	std::shared_ptr<vnx::Value> clone() const override;
 	
@@ -46,6 +52,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -61,6 +69,18 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void Condition::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<Condition>(6);
+	_visitor.type_field("version", 0); _visitor.accept(version);
+	_visitor.type_field("type", 1); _visitor.accept(type);
+	_visitor.type_field("compare", 2); _visitor.accept(compare);
+	_visitor.type_field("value", 3); _visitor.accept(value);
+	_visitor.type_field("currency", 4); _visitor.accept(currency);
+	_visitor.type_field("nested", 5); _visitor.accept(nested);
+	_visitor.template type_end<Condition>(6);
+}
 
 
 } // namespace mmx

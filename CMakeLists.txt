@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.11)
 project(mmx-node C CXX ASM)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -fopenmp -Wall -Wno-unused-function")
 
 set(ARITH "easy" CACHE STRING "BLS ARITH")
@@ -13,8 +13,10 @@ set(LIBBECH32_BUILD_RAPIDCHECK OFF CACHE BOOL "LIBBECH32_BUILD_RAPIDCHECK")
 
 add_subdirectory(vnx-base)
 add_subdirectory(vnx-addons)
+add_subdirectory(vnx-rocksdb)
 add_subdirectory(libbech32)
 add_subdirectory(bls-signatures)
+add_subdirectory(exchange)
 
 find_package(OpenCL)
 find_package(Threads REQUIRED)
@@ -53,20 +55,37 @@ add_library(mmx_iface SHARED
 	src/Transaction.cpp
 	src/Operation.cpp
 	src/Contract.cpp
+	src/Solution.cpp
 	src/ProofOfTime.cpp
 	src/ProofOfSpace.cpp
 	src/secp256k1.cpp
 	src/hash_t.cpp
+	src/contract/NFT.cpp
+	src/contract/Data.cpp
+	src/contract/WebData.cpp
 	src/contract/PubKey.cpp
+	src/contract/MultiSig.cpp
+	src/contract/Token.cpp
+	src/contract/Staking.cpp
+	src/contract/Condition.cpp
+	src/solution/PubKey.cpp
+	src/solution/MultiSig.cpp
+	src/operation/Mint.cpp
+	src/operation/Spend.cpp
+	src/operation/Mutate.cpp
 )
 
 add_library(mmx_modules SHARED
 	src/TimeLord.cpp
 	src/Node.cpp
+	src/Node_update.cpp
+	src/Node_verify.cpp
+	src/Node_validate.cpp
 	src/Wallet.cpp
 	src/Farmer.cpp
 	src/Harvester.cpp
 	src/Router.cpp
+	src/WebAPI.cpp
 	src/OCL_VDF.cpp
 )
 
@@ -92,7 +111,7 @@ target_include_directories(mmx_chiapos
 )
 
 target_link_libraries(mmx_iface uint256_t secp256k1 bech32 bls vnx_addons vnx_base)
-target_link_libraries(mmx_modules mmx_chiapos mmx_iface)
+target_link_libraries(mmx_modules vnx_rocksdb mmx_chiapos mmx_iface)
 
 if(OpenCL_FOUND)
 	target_link_libraries(mmx_modules automy_basic_opencl)
@@ -106,8 +125,8 @@ add_executable(mmx_wallet src/mmx_wallet.cpp)
 add_executable(mmx_timelord src/mmx_timelord.cpp)
 add_executable(mmx_harvester src/mmx_harvester.cpp)
 
-target_link_libraries(mmx mmx_iface)
-target_link_libraries(mmx_node mmx_modules)
+target_link_libraries(mmx mmx_iface mmx_exchange)
+target_link_libraries(mmx_node mmx_modules mmx_exchange)
 target_link_libraries(mmx_farmer mmx_modules)
 target_link_libraries(mmx_wallet mmx_modules)
 target_link_libraries(mmx_timelord mmx_modules)

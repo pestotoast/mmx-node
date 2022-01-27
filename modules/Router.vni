@@ -1,6 +1,6 @@
 package mmx;
 
-module Router extends vnx.addons.TcpServer {
+module Router extends vnx.addons.MsgServer {
 	
 	vnx.TopicPtr input_vdfs = "timelord.proofs";
 	vnx.TopicPtr input_blocks = "node.verified_blocks";
@@ -28,21 +28,18 @@ module Router extends vnx.addons.TcpServer {
 	uint min_sync_peers = 2;				// minimum peers needed for syncing
 	uint max_sync_peers = 4;				// maximum peers to check for different blocks
 	
-	uint max_msg_size = 4194304;			// bytes
 	uint max_hash_cache = 100000;
 	
-	uint tx_credits = 8;					// node reward for valid tx (and per update)
+	uint tx_credits = 10000;				// node reward per update
 	uint vdf_credits = 1024;				// node reward for valid vdf
 	uint block_credits = 256;				// node reward for valid block
 	uint proof_credits = 10;				// farmer reward for valid proof
 	
-	uint tx_relay_cost = 1;					// node cost
 	uint vdf_relay_cost = 768;				// node cost
 	uint proof_relay_cost = 2;				// farmer cost + node reward
 	uint block_relay_cost = 8;				// farmer cost + node reward
 	
 	uint max_node_credits = 1024;
-	uint max_node_tx_credits = 1024;
 	uint max_farmer_credits = 32;
 	
 	uint node_version = 101;

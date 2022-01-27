@@ -304,9 +304,10 @@ void Router::handle(std::shared_ptr<const Block> block)
 			auto& info = iter->second;
 			if(!info.received_from.empty()) {
 				if(auto peer = find_peer(info.received_from.front())) {
-					peer->tx_credits += tx_credits;
+					peer->tx_credits += tx->calc_cost(params);
 				}
 			}
+			info.did_relay = true;
 		}
 	}
 }
@@ -374,14 +375,15 @@ void Router::update()
 	for(const auto& entry : peer_map) {
 		const auto& peer = entry.second;
 		peer->credits = std::min(peer->credits, max_node_credits);
-		peer->tx_credits = std::min(peer->tx_credits + tx_credits, max_node_tx_credits);
+		peer->tx_credits = std::min(peer->tx_credits + tx_credits, params->max_block_cost);
 
 		// check pending transactions
 		while(!peer->tx_queue.empty()) {
 			const auto& tx = peer->tx_queue.front();
-			if(peer->tx_credits >= tx_relay_cost) {
+			const auto tx_cost = tx->calc_cost(params);
+			if(peer->tx_credits >= tx_cost) {
 				if(relay_msg_hash(tx->id)) {
-					peer->tx_credits -= tx_relay_cost;
+					peer->tx_credits -= tx_cost;
 					relay(peer->client, tx, {node_type_e::FULL_NODE});
 					tx_counter++;
 				}
@@ -802,16 +804,19 @@ void Router::connect_task(const std::string& address) noexcept
 	vnx::TcpEndpoint peer;
 	peer.host_name = address;
 	peer.port = params->port;
-	auto sock = peer.open();
+	int sock = -1;
 	try {
+		sock = peer.open();
 		peer.connect(sock);
 	}
 	catch(const std::exception& ex) {
+		if(sock >= 0) {
+			peer.close(sock);
+			sock = -1;
+		}
 		if(show_warnings) {
 			log(WARN) << "Connecting to peer " << address << " failed with: " << ex.what();
 		}
-		peer.close(sock);
-		sock = -1;
 	}
 	if(vnx::do_run()) {
 		add_task(std::bind(&Router::add_peer, this, address, sock));
@@ -841,7 +846,10 @@ void Router::print_stats()
 void Router::on_vdf(uint64_t client, std::shared_ptr<const ProofOfTime> proof)
 {
 	const auto peer = find_peer(client);
-	if(!peer) {
+	if(!peer
+		|| proof->segments.size() < params->min_vdf_segments
+		|| proof->segments.size() > params->max_vdf_segments)
+	{
 		return;
 	}
 	const auto hash = proof->calc_hash();
@@ -874,6 +882,7 @@ void Router::on_block(uint64_t client, std::shared_ptr<const Block> block)
 	}
 	const auto proof = block->proof;
 	if(!proof || !block->is_valid() || !block->farmer_sig
+		|| block->calc_cost(params) > params->max_block_cost
 		|| !proof->local_sig.verify(proof->local_key, proof->calc_hash())
 		|| !block->farmer_sig->verify(proof->farmer_key, block->hash))
 	{
@@ -917,7 +926,8 @@ void Router::on_proof(uint64_t client, std::shared_ptr<const ProofResponse> resp
 	if(!receive_msg_hash(hash, client, proof_relay_cost)) {
 		return;
 	}
-	if(!proof->local_sig.verify(proof->local_key, hash)) {
+	if(!proof->is_valid() || !proof->local_sig.verify(proof->local_key, hash))
+	{
 		if(auto peer = find_peer(client)) {
 			block_peers.insert(peer->address);
 			disconnect(client);
@@ -953,17 +963,19 @@ void Router::on_transaction(uint64_t client, std::shared_ptr<const Transaction> 
 	if(!peer) {
 		return;
 	}
-	if(!tx->is_valid()) {
+	const auto tx_cost = tx->calc_cost(params);
+	if(!tx->is_valid() || tx_cost > params->max_block_cost)
+	{
 		block_peers.insert(peer->address);
 		disconnect(client);
 		log(WARN) << "Banned peer " << peer->address << " because they sent us an invalid transaction.";
 		return;
 	}
 	if(do_relay) {
-		const bool has_credits = peer->tx_credits >= tx_relay_cost;
+		const bool has_credits = peer->tx_credits >= tx_cost;
 		if(has_credits) {
 			if(relay_msg_hash(tx->id)) {
-				peer->tx_credits -= tx_relay_cost;
+				peer->tx_credits -= tx_cost;
 				relay(client, tx, {node_type_e::FULL_NODE});
 				tx_counter++;
 			}
@@ -1017,22 +1029,7 @@ void Router::send_to(std::shared_ptr<peer_t> peer, std::shared_ptr<const vnx::Va
 		drop_counter++;
 		return;
 	}
-	auto& out = peer->out;
-	vnx::write(out, uint16_t(vnx::CODE_UINT32));
-	vnx::write(out, uint32_t(0));
-	vnx::write(out, msg);
-	out.flush();
-
-	auto buffer = std::make_shared<vnx::Buffer>(peer->data);
-	peer->data.clear();
-
-	if(buffer->size() > max_msg_size) {
-		return;
-	}
-	*((uint32_t*)buffer->data(2)) = buffer->size() - 6;
-
-	peer->bytes_send += buffer->size();
-	Super::send_to(peer->client, buffer);
+	Super::send_to(peer, msg);
 }
 
 void Router::send_all(std::shared_ptr<const vnx::Value> msg, const std::set<node_type_e>& filter, bool reliable)
@@ -1316,63 +1313,6 @@ void Router::on_msg(uint64_t client, std::shared_ptr<const vnx::Value> msg)
 	}
 }
 
-void Router::on_buffer(uint64_t client, void*& buffer, size_t& max_bytes)
-{
-	const auto peer = get_peer(client);
-	const auto offset = peer->buffer.size();
-	if(peer->msg_size == 0) {
-		if(offset > 6) {
-			throw std::logic_error("offset > 6");
-		}
-		peer->buffer.reserve(6);
-		max_bytes = 6 - offset;
-	} else {
-		max_bytes = (6 + peer->msg_size) - offset;
-	}
-	buffer = peer->buffer.data(offset);
-}
-
-bool Router::on_read(uint64_t client, size_t num_bytes)
-{
-	const auto peer = get_peer(client);
-	peer->bytes_recv += num_bytes;
-	peer->buffer.resize(peer->buffer.size() + num_bytes);
-
-	if(peer->msg_size == 0) {
-		if(peer->buffer.size() >= 6) {
-			uint16_t code = 0;
-			vnx::read_value(peer->buffer.data(), code);
-			vnx::read_value(peer->buffer.data(2), peer->msg_size, &code);
-			if(peer->msg_size > max_msg_size) {
-				throw std::logic_error("message too large");
-			}
-			if(peer->msg_size > 0) {
-				peer->buffer.reserve(6 + peer->msg_size);
-			} else {
-				peer->buffer.clear();
-			}
-		}
-	}
-	else if(peer->buffer.size() == 6 + peer->msg_size)
-	{
-		peer->in.read(6);
-		if(auto value = vnx::read(peer->in)) {
-			try {
-				on_msg(client, value);
-			}
-			catch(const std::exception& ex) {
-				if(show_warnings) {
-					log(WARN) << "on_msg() failed with: " << ex.what();
-				}
-			}
-		}
-		peer->buffer.clear();
-		peer->in_stream.reset();
-		peer->msg_size = 0;
-	}
-	return true;
-}
-
 void Router::on_pause(uint64_t client)
 {
 	if(auto peer = find_peer(client)) {
@@ -1433,7 +1373,12 @@ void Router::on_disconnect(uint64_t client)
 	});
 }
 
-std::shared_ptr<Router::peer_t> Router::get_peer(uint64_t client)
+std::shared_ptr<Router::Super::peer_t> Router::get_peer_base(uint64_t client) const
+{
+	return get_peer(client);
+}
+
+std::shared_ptr<Router::peer_t> Router::get_peer(uint64_t client) const
 {
 	if(auto peer = find_peer(client)) {
 		return peer;
@@ -1441,7 +1386,7 @@ std::shared_ptr<Router::peer_t> Router::get_peer(uint64_t client)
 	throw std::logic_error("no such peer");
 }
 
-std::shared_ptr<Router::peer_t> Router::find_peer(uint64_t client)
+std::shared_ptr<Router::peer_t> Router::find_peer(uint64_t client) const
 {
 	auto iter = peer_map.find(client);
 	if(iter != peer_map.end()) {

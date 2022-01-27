@@ -3,6 +3,7 @@
 
 #include <mmx/package.hxx>
 #include <mmx/TransactionBase.hxx>
+#include <mmx/ChainParams.hxx>
 #include <mmx/hash_t.hpp>
 #include <vnx/Value.h>
 
@@ -87,8 +88,6 @@ vnx::Variant TransactionBase::get_field(const std::string& _name) const {
 void TransactionBase::set_field(const std::string& _name, const vnx::Variant& _value) {
 	if(_name == "id") {
 		_value.to(id);
-	} else {
-		throw std::logic_error("no such field: '" + _name + "'");
 	}
 }
 

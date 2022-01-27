@@ -5,9 +5,9 @@
 #define INCLUDE_mmx_stxo_entry_t_HXX_
 
 #include <mmx/package.hxx>
+#include <mmx/stxo_t.hxx>
 #include <mmx/txio_key_t.hxx>
 #include <mmx/utxo_entry_t.hxx>
-#include <mmx/utxo_t.hxx>
 
 
 namespace mmx {
@@ -30,7 +30,7 @@ struct stxo_entry_t : ::mmx::utxo_entry_t {
 	std::string get_type_name() const;
 	const vnx::TypeCode* get_type_code() const;
 	
-	static ::mmx::stxo_entry_t create_ex(const ::mmx::txio_key_t& key = ::mmx::txio_key_t(), const ::mmx::utxo_t& output = ::mmx::utxo_t(), const ::mmx::txio_key_t& spent = ::mmx::txio_key_t());
+	static ::mmx::stxo_entry_t create_ex(const ::mmx::txio_key_t& key = ::mmx::txio_key_t(), const ::mmx::stxo_t& stxo = ::mmx::stxo_t());
 	
 	static std::shared_ptr<stxo_entry_t> create();
 	std::shared_ptr<stxo_entry_t> clone() const;
@@ -41,6 +41,8 @@ struct stxo_entry_t : ::mmx::utxo_entry_t {
 	void read(std::istream& _in);
 	void write(std::ostream& _out) const;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const;
 	
 	vnx::Object to_object() const;
@@ -56,6 +58,15 @@ struct stxo_entry_t : ::mmx::utxo_entry_t {
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void stxo_entry_t::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<stxo_entry_t>(3);
+	_visitor.type_field("key", 0); _visitor.accept(key);
+	_visitor.type_field("output", 1); _visitor.accept(output);
+	_visitor.type_field("spent", 2); _visitor.accept(spent);
+	_visitor.template type_end<stxo_entry_t>(3);
+}
 
 
 } // namespace mmx

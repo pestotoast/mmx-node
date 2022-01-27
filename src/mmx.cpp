@@ -10,6 +10,12 @@
 #include <mmx/WalletClient.hxx>
 #include <mmx/FarmerClient.hxx>
 #include <mmx/HarvesterClient.hxx>
+#include <mmx/exchange/ClientClient.hxx>
+#include <mmx/exchange/trade_pair_t.hpp>
+#include <mmx/Contract.hxx>
+#include <mmx/contract/NFT.hxx>
+#include <mmx/contract/Token.hxx>
+#include <mmx/contract/Staking.hxx>
 #include <mmx/KeyFile.hxx>
 #include <mmx/secp256k1.hpp>
 #include <mmx/hash_t.hpp>
@@ -19,17 +25,30 @@
 #include <vnx/Proxy.h>
 
 
-void show_history(const std::vector<mmx::tx_entry_t>& history, std::shared_ptr<const mmx::ChainParams> params)
+void show_history(const std::vector<mmx::tx_entry_t>& history, mmx::NodeClient& node, std::shared_ptr<const mmx::ChainParams> params)
 {
+	std::unordered_map<mmx::addr_t, std::shared_ptr<const mmx::Contract>> contract_map;
 	for(const auto& entry : history) {
 		std::cout << "[" << entry.height << "] ";
 		switch(entry.type) {
-			case mmx::tx_type_e::SEND:    std::cout << "SEND    "; break;
-			case mmx::tx_type_e::RECEIVE: std::cout << "RECEIVE "; break;
-			case mmx::tx_type_e::REWARD:  std::cout << "REWARD  "; break;
+			case mmx::tx_type_e::SEND:    std::cout << "SEND    - "; break;
+			case mmx::tx_type_e::SPEND:   std::cout << "SPEND   - "; break;
+			case mmx::tx_type_e::INPUT:   std::cout << "INPUT   + "; break;
+			case mmx::tx_type_e::RECEIVE: std::cout << "RECEIVE + "; break;
+			case mmx::tx_type_e::REWARD:  std::cout << "REWARD  + "; break;
 			default: std::cout << "????    "; break;
 		}
-		std::cout << entry.amount / pow(10, params->decimals) << " MMX (" << entry.amount << ") -> " << entry.address << std::endl;
+		auto iter = contract_map.find(entry.contract);
+		if(iter == contract_map.end()) {
+			iter = contract_map.emplace(entry.contract, std::dynamic_pointer_cast<const mmx::Contract>(node.get_contract(entry.contract))).first;
+		}
+		if(auto nft = std::dynamic_pointer_cast<const mmx::contract::NFT>(iter->second)) {
+			std::cout << entry.contract << " -> " << entry.address << std::endl;
+		} else {
+			const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(iter->second);
+			const auto decimals = token ? token->decimals : params->decimals;
+			std::cout << entry.amount / pow(10, decimals) << " " << (token ? token->symbol : "MMX") << " (" << entry.amount << ") -> " << entry.address << std::endl;
+		}
 	}
 }
 
@@ -43,12 +62,17 @@ int main(int argc, char** argv)
 	options["f"] = "file";
 	options["j"] = "index";
 	options["a"] = "amount";
+	options["b"] = "bid";
+	options["s"] = "source";
 	options["t"] = "target";
 	options["x"] = "contract";
+	options["y"] = "yes";
 	options["node"] = "address";
 	options["file"] = "path";
 	options["index"] = "0..?";
 	options["amount"] = "123.456";
+	options["bid"] = "123.456";
+	options["source"] = "address";
 	options["target"] = "address";
 	options["contract"] = "address";
 
@@ -59,15 +83,21 @@ int main(int argc, char** argv)
 	std::string module;
 	std::string command;
 	std::string file_name;
+	std::string source_addr;
 	std::string target_addr;
 	std::string contract_addr;
 	int64_t index = 0;
 	double amount = 0;
+	double bid_amount = 0;
+	bool pre_accept = false;
 	vnx::read_config("$1", module);
 	vnx::read_config("$2", command);
+	vnx::read_config("yes", pre_accept);
 	vnx::read_config("file", file_name);
 	vnx::read_config("index", index);
 	vnx::read_config("amount", amount);
+	vnx::read_config("bid", bid_amount);
+	vnx::read_config("source", source_addr);
 	vnx::read_config("target", target_addr);
 	vnx::read_config("contract", contract_addr);
 
@@ -76,8 +106,17 @@ int main(int argc, char** argv)
 
 	mmx::NodeClient node("Node");
 
+	mmx::addr_t source;
 	mmx::addr_t target;
 	mmx::addr_t contract;
+	try {
+		if(!source_addr.empty()) {
+			source.from_string(source_addr);
+		}
+	} catch(std::exception& ex) {
+		vnx::log_error() << "Invalid address: " << ex.what();
+		goto failed;
+	}
 	try {
 		if(!target_addr.empty()) {
 			target.from_string(target_addr);
@@ -118,8 +157,56 @@ int main(int argc, char** argv)
 				int num_addrs = 1;
 				vnx::read_config("$3", num_addrs);
 
-				const auto amount = wallet.get_balance(index, contract);
-				std::cout << "Balance: " << amount / pow(10, params->decimals) << " MMX (" << amount << ")" << std::endl;
+				std::vector<mmx::addr_t> nfts;
+				for(const auto& entry : wallet.get_balances(index))
+				{
+					const auto contract = node.get_contract(entry.first);
+					if(std::dynamic_pointer_cast<const mmx::contract::NFT>(contract)) {
+						nfts.push_back(entry.first);
+					} else {
+						const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(contract);
+						if(token || entry.first == mmx::addr_t()) {
+							const auto decimals = token ? token->decimals : params->decimals;
+							std::cout << "Balance: " << entry.second / pow(10, decimals) << " " << (token ? token->symbol : "MMX") << " (" << entry.second << ")";
+							if(token) {
+								std::cout << " [" << entry.first << "]";
+							}
+							std::cout << std::endl;
+						}
+					}
+				}
+				for(const auto& addr : nfts) {
+					std::cout << "NFT: " << addr << std::endl;
+				}
+				for(const auto& entry : wallet.get_contracts(index))
+				{
+					const auto& address = entry.first;
+					const auto& contract = entry.second;
+					std::cout << "Contract: " << address << " (" << contract->get_type_name();
+					if(auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(contract)) {
+						std::cout << ", " << token->symbol << ", " << token->name;
+					}
+					if(auto staking = std::dynamic_pointer_cast<const mmx::contract::Staking>(contract)) {
+						if(auto contract = node.get_contract(staking->currency)) {
+							if(auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(contract)) {
+								std::cout << ", " << token->symbol;
+							} else {
+								std::cout << ", ???";
+							}
+						} else {
+							std::cout << ", ???";
+						}
+					}
+					std::cout << ")" << std::endl;
+
+					for(const auto& entry : node.get_total_balances({address}))
+					{
+						const auto currency = node.get_contract(entry.first);
+						const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(currency);
+						const auto decimals = token ? token->decimals : params->decimals;
+						std::cout << "  Balance: " << entry.second / pow(10, decimals) << " " << (token ? token->symbol : "MMX") << " (" << entry.second << ")" << std::endl;
+					}
+				}
 				for(int i = 0; i < num_addrs; ++i) {
 					std::cout << "Address[" << i << "]: " << wallet.get_address(index, i) << std::endl;
 				}
@@ -151,19 +238,29 @@ int main(int argc, char** argv)
 				}
 				else if(subject == "balance")
 				{
-					std::cout << wallet.get_balance(index, contract) / pow(10, params->decimals) << std::endl;
+					const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(contract));
+					std::cout << wallet.get_balance(index, contract) / pow(10, token ? token->decimals : params->decimals) << std::endl;
+				}
+				else if(subject == "contracts")
+				{
+					for(const auto& entry : wallet.get_contracts(index)) {
+						std::cout << entry.first << std::endl;
+					}
 				}
 				else if(subject == "seed")
 				{
 					std::cout << wallet.get_master_seed(index) << std::endl;
 				}
 				else {
-					std::cerr << "Help: mmx wallet get [address | amount | balance]" << std::endl;
+					std::cerr << "Help: mmx wallet get [address | balance | amount | contracts | seed]" << std::endl;
 				}
 			}
 			else if(command == "send")
 			{
-				const int64_t mojo = amount * pow(10, params->decimals);
+				const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(contract));
+
+				const auto decimals = token ? token->decimals : params->decimals;
+				const int64_t mojo = amount * pow(10, decimals);
 				if(amount <= 0 || mojo <= 0) {
 					vnx::log_error() << "Invalid amount: " << amount << " (-a | --amount)";
 					goto failed;
@@ -172,12 +269,74 @@ int main(int argc, char** argv)
 					vnx::log_error() << "Missing destination address argument: -t | --target";
 					goto failed;
 				}
-				std::string currency = "MMX";
-				if(contract != mmx::addr_t()) {
-					currency = "?";
-				}
 				const auto txid = wallet.send(index, mojo, target, contract);
-				std::cout << "Sent " << mojo / pow(10, params->decimals) << " (" << mojo << ") " << currency << " to " << target << std::endl;
+				std::cout << "Sent " << mojo / pow(10, decimals) << " " << (token ? token->symbol : "MMX") << " (" << mojo << ") to " << target << std::endl;
+				std::cout << "Transaction ID: " << txid << std::endl;
+			}
+			else if(command == "send_from")
+			{
+				const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(contract));
+
+				const auto decimals = token ? token->decimals : params->decimals;
+				const int64_t mojo = amount * pow(10, decimals);
+				if(amount <= 0 || mojo <= 0) {
+					vnx::log_error() << "Invalid amount: " << amount << " (-a | --amount)";
+					goto failed;
+				}
+				if(source == mmx::addr_t()) {
+					vnx::log_error() << "Missing source address argument: -s | --source";
+					goto failed;
+				}
+				if(target == mmx::addr_t()) {
+					vnx::log_error() << "Missing destination address argument: -t | --target";
+					goto failed;
+				}
+				const auto txid = wallet.send_from(index, mojo, target, source, contract);
+				std::cout << "Sent " << mojo / pow(10, decimals) << " " << (token ? token->symbol : "MMX") << " (" << mojo << ") to " << target << std::endl;
+				std::cout << "Transaction ID: " << txid << std::endl;
+			}
+			else if(command == "transfer")
+			{
+				if(target == mmx::addr_t()) {
+					vnx::log_error() << "Missing destination address argument: -t | --target";
+					goto failed;
+				}
+				const auto txid = wallet.send(index, 1, target, contract);
+				std::cout << "Sent " << contract << " to " << target << std::endl;
+				std::cout << "Transaction ID: " << txid << std::endl;
+			}
+			else if(command == "mint")
+			{
+				const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(contract));
+				if(!token) {
+					vnx::log_error() << "No such token: " << contract;
+					goto failed;
+				}
+				const int64_t mojo = amount * pow(10, token->decimals);
+				if(amount <= 0 || mojo <= 0) {
+					vnx::log_error() << "Invalid amount: " << amount << " (-a | --amount)";
+					goto failed;
+				}
+				if(target == mmx::addr_t()) {
+					vnx::log_error() << "Missing destination address argument: -t | --target";
+					goto failed;
+				}
+				const auto txid = wallet.mint(index, mojo, target, contract);
+				std::cout << "Minted " << mojo / pow(10, token->decimals) << " (" << mojo << ") " << token->symbol << " to " << target << std::endl;
+				std::cout << "Transaction ID: " << txid << std::endl;
+			}
+			else if(command == "deploy")
+			{
+				std::string file_path;
+				vnx::read_config("$3", file_path);
+
+				auto payload = vnx::read_from_file<mmx::Contract>(file_path);
+				if(!payload) {
+					vnx::log_error() << "Failed to read contract from file: " << file_path;
+					goto failed;
+				}
+				const auto txid = wallet.deploy(index, payload);
+				std::cout << "Deployed " << payload->get_type_name() << " as " << mmx::addr_t(txid) << std::endl;
 				std::cout << "Transaction ID: " << txid << std::endl;
 			}
 			else if(command == "log")
@@ -185,7 +344,7 @@ int main(int argc, char** argv)
 				int64_t since = 0;
 				vnx::read_config("$3", since);
 
-				show_history(wallet.get_history(index, since), params);
+				show_history(wallet.get_history(index, since), node, params);
 			}
 			else if(command == "create")
 			{
@@ -216,7 +375,7 @@ int main(int argc, char** argv)
 						<< std::endl << wallet.seed_value << std::endl;
 			}
 			else {
-				std::cerr << "Help: mmx wallet [show | log | send | create]" << std::endl;
+				std::cerr << "Help: mmx wallet [show | log | send | send_from | transfer | mint | deploy | create]" << std::endl;
 			}
 		}
 		else if(module == "node")
@@ -238,22 +397,32 @@ int main(int argc, char** argv)
 			{
 				mmx::addr_t address;
 				if(!vnx::read_config("$3", address)) {
-					vnx::log_error() << "Missing address argument! (node balance <address>)";
+					vnx::log_error() << "Missing address argument! (node balances <address>)";
 					goto failed;
 				}
-				const auto amount = node.get_balance(address, contract);
-				std::cout << "Balance: " << amount / pow(10, params->decimals) << " MMX (" << amount << ")" << std::endl;
+				for(const auto& entry : node.get_total_balances({address}))
+				{
+					const auto contract = node.get_contract(entry.first);
+					if(!std::dynamic_pointer_cast<const mmx::contract::NFT>(contract)) {
+						const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(contract);
+						const auto decimals = token ? token->decimals : params->decimals;
+						std::cout << "Balance: " << entry.second / pow(10, decimals) << " " << (token ? token->symbol : "MMX") << " (" << entry.second << ")" << std::endl;
+					}
+				}
 			}
 			else if(command == "info")
 			{
-				const auto height = node.get_height();
-				const auto peak = node.get_header_at(height);
-				std::cout << "Synced: " << (node.get_synced_height() ? "Yes" : "No") << std::endl;
-				std::cout << "Height: " << height << std::endl;
-				std::cout << "Netspace: " << mmx::calc_total_netspace(params, peak->space_diff) / pow(1024, 4) << " TiB" << std::endl;
-				for(uint32_t i = 0; i < 2 * params->finality_delay && i < height; ++i) {
-					const auto hash = node.get_block_hash(height - i);
-					std::cout << "Block[" << (height - i) << "] " << (hash ? *hash : mmx::hash_t()) << std::endl;
+				const auto info = node.get_network_info();
+				std::cout << "Synced:   " << (node.get_synced_height() ? "Yes" : "No") << std::endl;
+				std::cout << "Height:   " << info->height << std::endl;
+				std::cout << "Netspace: " << info->total_space / pow(1024, 4) << " TiB" << std::endl;
+				std::cout << "Reward:   " << info->block_reward / 1e6 << " MMX" << std::endl;
+				std::cout << "Supply:   " << info->total_supply / 1e6 << " MMX" << std::endl;
+				std::cout << "N(UTXO):    " << info->utxo_count << std::endl;
+				std::cout << "N(Address): " << info->address_count << std::endl;
+				for(uint32_t i = 0; i < 2 * params->finality_delay && i < info->height; ++i) {
+					const auto hash = node.get_block_hash(info->height - i);
+					std::cout << "Block[" << (info->height - i) << "] " << (hash ? *hash : mmx::hash_t()) << std::endl;
 				}
 			}
 			else if(command == "history")
@@ -266,7 +435,7 @@ int main(int argc, char** argv)
 				int64_t since = 0;
 				vnx::read_config("$4", since);
 
-				show_history(node.get_history_for({address}, since), params);
+				show_history(node.get_history_for({address}, since), node, params);
 			}
 			else if(command == "peers")
 			{
@@ -298,7 +467,7 @@ int main(int argc, char** argv)
 					std::cout << ", " << send / 1024 << "." << (send * 10 / 1024) % 10 << " KB/s send";
 					std::cout << ", since " << (peer.connect_time_ms / 60000) << " min";
 					std::cout << ", " << peer.credits << " credits";
-					std::cout << ", " << peer.tx_credits << " tx credits";
+					std::cout << ", " << peer.tx_credits / 1000 << " tx credits";
 					std::cout << ", " << peer.ping_ms << " ms ping";
 					std::cout << ", " << (peer.recv_timeout_ms / 100) / 10. << " sec timeout";
 					if(peer.is_outbound) {
@@ -336,7 +505,7 @@ int main(int argc, char** argv)
 				mmx::hash_t txid;
 				vnx::read_config("$3", txid);
 
-				const auto tx = node.get_transaction(txid);
+				const auto tx = node.get_transaction(txid, true);
 				if(!tx) {
 					vnx::log_error() << "No such transaction: " << txid;
 					goto failed;
@@ -350,7 +519,10 @@ int main(int argc, char** argv)
 				}
 				size_t i = 0;
 				for(const auto& out : tx->outputs) {
-					std::cout << "Output[" << i++ << "]: " << out.amount / pow(10, params->decimals) << " MMX (" << out.amount << ") -> " << out.address << std::endl;
+					const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(out.contract));
+					const auto decimals = token ? token->decimals : params->decimals;
+					std::cout << "Output[" << i++ << "]: " << out.amount / pow(10, decimals)
+							<< " " << (token ? token->symbol : "MMX") << " (" << out.amount << ") -> " << out.address << std::endl;
 				}
 			}
 			else if(command == "get")
@@ -363,16 +535,15 @@ int main(int argc, char** argv)
 					mmx::addr_t address;
 					vnx::read_config("$4", address);
 
-					const auto amount = node.get_balance(address, contract);
-					std::cout << amount / pow(10, params->decimals) << std::endl;
+					const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(contract));
+					std::cout << node.get_balance(address, contract) / pow(10, token ? token->decimals : params->decimals) << std::endl;
 				}
 				else if(subject == "amount")
 				{
 					mmx::addr_t address;
 					vnx::read_config("$4", address);
 
-					const auto amount = node.get_balance(address, contract);
-					std::cout << amount << std::endl;
+					std::cout << node.get_balance(address, contract) << std::endl;
 				}
 				else if(subject == "height")
 				{
@@ -409,11 +580,24 @@ int main(int argc, char** argv)
 					mmx::hash_t txid;
 					vnx::read_config("$4", txid);
 
-					const auto tx = node.get_transaction(txid);
+					const auto tx = node.get_transaction(txid, true);
 					{
 						std::stringstream ss;
 						vnx::PrettyPrinter printer(ss);
 						vnx::accept(printer, tx);
+						std::cout << ss.str() << std::endl;
+					}
+				}
+				else if(subject == "contract")
+				{
+					mmx::addr_t address;
+					vnx::read_config("$4", address);
+
+					const auto contract = node.get_contract(address);
+					{
+						std::stringstream ss;
+						vnx::PrettyPrinter printer(ss);
+						vnx::accept(printer, contract);
 						std::cout << ss.str() << std::endl;
 					}
 				}
@@ -430,14 +614,14 @@ int main(int argc, char** argv)
 				{
 					const auto height = node.get_height();
 					const auto peak = node.get_header_at(height);
-					std::cout << mmx::calc_total_netspace(params, peak->space_diff) << std::endl;
+					std::cout << mmx::calc_total_netspace(params, peak ? peak->space_diff : 0) << std::endl;
 				}
 				else if(subject == "supply")
 				{
 					std::cout << node.get_total_supply(contract) << std::endl;
 				}
 				else {
-					std::cerr << "Help: mmx node get [height | tx | balance | amount | history | block | header | peers | netspace | supply]" << std::endl;
+					std::cerr << "Help: mmx node get [height | tx | contract | balance | amount | block | header | peers | netspace | supply]" << std::endl;
 				}
 			}
 			else if(command == "fetch")
@@ -477,7 +661,7 @@ int main(int argc, char** argv)
 				}
 			}
 			else {
-				std::cerr << "Help: mmx node [info | peers | tx | get | fetch | balance | sync]" << std::endl;
+				std::cerr << "Help: mmx node [info | peers | tx | get | fetch | balance | history | sync]" << std::endl;
 			}
 		}
 		else if(module == "farm")
@@ -502,16 +686,19 @@ int main(int argc, char** argv)
 				info = harvester.get_farm_info();
 			}
 
-			if(command == "info") {
+			if(command == "info")
+			{
 				std::cout << "Total space: " << info->total_bytes / pow(1024, 4) << " TiB" << std::endl;
 				for(const auto& entry : info->plot_count) {
 					std::cout << "K" << int(entry.first) << ": " << entry.second << " plots" << std::endl;
 				}
 			}
-			else if(command == "reload") {
+			else if(command == "reload")
+			{
 				harvester.reload();
 			}
-			else if(command == "get") {
+			else if(command == "get")
+			{
 				std::string subject;
 				vnx::read_config("$3", subject);
 
@@ -533,8 +720,121 @@ int main(int argc, char** argv)
 				std::cerr << "Help: mmx farm [info | get | reload]" << std::endl;
 			}
 		}
+		else if(module == "exch") {
+			std::string node_url = ":11331";
+			vnx::read_config("node", node_url);
+
+			vnx::Handle<vnx::Proxy> proxy = new vnx::Proxy("Proxy", vnx::Endpoint::from_url(node_url));
+			proxy->forward_list = {"ExchClient", "Node"};
+			proxy.start_detached();
+			try {
+				params = node.get_params();
+			} catch(...) {
+				// ignore
+			}
+			mmx::exchange::ClientClient client("ExchClient");
+
+			if(command == "offer")
+			{
+				mmx::exchange::trade_pair_t pair;
+				pair.ask = contract;
+				vnx::read_config("$3", pair.bid);
+
+				if(pair.bid == pair.ask) {
+					vnx::log_error() << "Invalid trade!";
+					goto failed;
+				}
+				auto bid_token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(pair.bid));
+				auto ask_token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(pair.ask));
+
+				if(!bid_token && pair.bid != mmx::addr_t()) {
+					vnx::log_error() << "Invalid token: " << pair.bid;
+					goto failed;
+				}
+				if(!ask_token && pair.ask != mmx::addr_t()) {
+					vnx::log_error() << "Invalid token: " << pair.ask;
+					goto failed;
+				}
+				const uint64_t ask = amount * pow(10, ask_token ? ask_token->decimals : params->decimals);
+				const uint64_t bid = bid_amount * pow(10, bid_token ? bid_token->decimals : params->decimals);
+
+				if(bid == 0 || ask == 0) {
+					vnx::log_error() << "Invalid amount!";
+					goto failed;
+				}
+				auto offer = client.make_offer(index, pair, bid, ask);
+				if(!offer) {
+					vnx::log_error() << "Unable to make offer!";
+					goto failed;
+				}
+				std::cout << "ID: " << offer->id << std::endl;
+				std::cout << "Bids: ";
+				int i = 0;
+				for(const auto& entry : offer->orders) {
+					std::cout << (i++ ? " + " : "") << entry.second.bid.amount / pow(10, bid_token ? bid_token->decimals : params->decimals);
+				}
+				std::cout << std::endl;
+				std::cout << "Total Bid: " << offer->bid / pow(10, bid_token ? bid_token->decimals : params->decimals)
+						<< " (" << offer->bid << ") " << (bid_token ? bid_token->symbol : "MMX") << std::endl;
+				std::cout << "Total Ask: " << offer->ask / pow(10, ask_token ? ask_token->decimals : params->decimals)
+						<< " (" << offer->ask << ") " << (ask_token ? ask_token->symbol : "MMX") << std::endl;
+				std::cout << "Price: " << bid / double(ask) << " " << (bid_token ? bid_token->symbol : "MMX")
+						<< " / " << (ask_token ? ask_token->symbol : "MMX") << std::endl;
+				if(pre_accept) {
+					client.place(offer);
+				} else {
+					std::cout << "Accept (y): ";
+					std::string input;
+					std::getline(std::cin, input);
+					if(input == "y") {
+						client.place(offer);
+					} else {
+						std::cout << "Aborted" << std::endl;
+					}
+				}
+			}
+			else if(command == "orders")
+			{
+				mmx::exchange::trade_pair_t pair;
+				pair.ask = contract;
+				vnx::read_config("$3", pair.bid);
+
+				auto bid_token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(pair.bid));
+				auto ask_token = std::dynamic_pointer_cast<const mmx::contract::Token>(node.get_contract(pair.ask));
+
+				const auto servers = client.get_servers();
+				if(size_t(index) >= servers.size()) {
+					vnx::log_error() << "Invalid server!";
+					goto failed;
+				}
+				std::cout << "Server: " << servers[index] << std::endl;
+				std::cout << "Pair: " << (bid_token ? bid_token->symbol : "MMX") << " / " << (ask_token ? ask_token->symbol : "MMX") << std::endl;
+				auto sell_orders = client.get_orders(servers[index], pair);
+				std::reverse(sell_orders.begin(), sell_orders.end());
+				for(const auto& order : sell_orders) {
+					std::cout << "Sell: " << order.bid / double(order.ask) << " => "
+							<< order.bid / pow(10, bid_token ? bid_token->decimals : params->decimals) << " " << (bid_token ? bid_token->symbol : "MMX") << std::endl;
+				}
+				auto buy_orders = client.get_orders(servers[index], pair.reverse());
+				std::reverse(buy_orders.begin(), buy_orders.end());
+				for(const auto& order : buy_orders) {
+					std::cout << "Buy:  " << order.ask / double(order.bid) << " => "
+							<< order.ask / pow(10, bid_token ? bid_token->decimals : params->decimals) << " " << (bid_token ? bid_token->symbol : "MMX") << std::endl;
+				}
+			}
+			else if(command == "servers")
+			{
+				const auto servers = client.get_servers();
+				for(const auto& name : servers) {
+					std::cout << "[" << name << "]" << std::endl;
+				}
+			}
+			else {
+				std::cerr << "Help: mmx exch [offer | orders | servers]" << std::endl;
+			}
+		}
 		else {
-			std::cerr << "Help: mmx [node | wallet | farm]" << std::endl;
+			std::cerr << "Help: mmx [node | wallet | farm | exch]" << std::endl;
 		}
 	}
 	catch(std::exception& ex) {

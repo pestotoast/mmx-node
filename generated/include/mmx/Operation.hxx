@@ -5,6 +5,7 @@
 #define INCLUDE_mmx_Operation_HXX_
 
 #include <mmx/package.hxx>
+#include <mmx/ChainParams.hxx>
 #include <mmx/Solution.hxx>
 #include <mmx/addr_t.hpp>
 #include <mmx/hash_t.hpp>
@@ -33,7 +34,9 @@ public:
 	std::string get_type_name() const override;
 	const vnx::TypeCode* get_type_code() const override;
 	
+	virtual vnx::bool_t is_valid() const;
 	virtual ::mmx::hash_t calc_hash() const;
+	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const;
 	
 	static std::shared_ptr<Operation> create();
 	std::shared_ptr<vnx::Value> clone() const override;
@@ -44,6 +47,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -59,6 +64,15 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void Operation::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<Operation>(3);
+	_visitor.type_field("version", 0); _visitor.accept(version);
+	_visitor.type_field("address", 1); _visitor.accept(address);
+	_visitor.type_field("solution", 2); _visitor.accept(solution);
+	_visitor.template type_end<Operation>(3);
+}
 
 
 } // namespace mmx

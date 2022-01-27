@@ -13,7 +13,7 @@ namespace mmx {
 
 
 const vnx::Hash64 PeerInfo::VNX_TYPE_HASH(0xf7a37f624c94a121ull);
-const vnx::Hash64 PeerInfo::VNX_CODE_HASH(0xb262193eb2b599c4ull);
+const vnx::Hash64 PeerInfo::VNX_CODE_HASH(0x14a9d006b57f6fa8ull);
 
 vnx::Hash64 PeerInfo::get_type_hash() const {
 	return VNX_TYPE_HASH;
@@ -87,8 +87,6 @@ vnx::Variant PeerInfo::get_field(const std::string& _name) const {
 void PeerInfo::set_field(const std::string& _name, const vnx::Variant& _value) {
 	if(_name == "peers") {
 		_value.to(peers);
-	} else {
-		throw std::logic_error("no such field: '" + _name + "'");
 	}
 }
 
@@ -116,7 +114,7 @@ std::shared_ptr<vnx::TypeCode> PeerInfo::static_create_type_code() {
 	auto type_code = std::make_shared<vnx::TypeCode>();
 	type_code->name = "mmx.PeerInfo";
 	type_code->type_hash = vnx::Hash64(0xf7a37f624c94a121ull);
-	type_code->code_hash = vnx::Hash64(0xb262193eb2b599c4ull);
+	type_code->code_hash = vnx::Hash64(0x14a9d006b57f6fa8ull);
 	type_code->is_native = true;
 	type_code->is_class = true;
 	type_code->native_size = sizeof(::mmx::PeerInfo);

@@ -5,8 +5,13 @@
 #define INCLUDE_mmx_contract_Staking_HXX_
 
 #include <mmx/contract/package.hxx>
+#include <mmx/ChainParams.hxx>
+#include <mmx/Context.hxx>
 #include <mmx/Contract.hxx>
+#include <mmx/Operation.hxx>
 #include <mmx/addr_t.hpp>
+#include <mmx/hash_t.hpp>
+#include <mmx/tx_out_t.hxx>
 
 
 namespace mmx {
@@ -14,8 +19,10 @@ namespace contract {
 
 class Staking : public ::mmx::Contract {
 public:
+	static const uint32_t min_duration = 18;
 	
-	::mmx::addr_t contract;
+	::mmx::addr_t owner;
+	::mmx::addr_t currency;
 	::mmx::addr_t reward_addr;
 	
 	typedef ::mmx::Contract Super;
@@ -31,6 +38,13 @@ public:
 	std::string get_type_name() const override;
 	const vnx::TypeCode* get_type_code() const override;
 	
+	virtual vnx::bool_t is_valid() const override;
+	virtual ::mmx::hash_t calc_hash() const override;
+	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const override;
+	virtual std::vector<::mmx::addr_t> get_dependency() const override;
+	virtual vnx::optional<::mmx::addr_t> get_owner() const override;
+	virtual std::vector<::mmx::tx_out_t> validate(std::shared_ptr<const ::mmx::Operation> operation = nullptr, std::shared_ptr<const ::mmx::Context> context = nullptr) const override;
+	
 	static std::shared_ptr<Staking> create();
 	std::shared_ptr<vnx::Value> clone() const override;
 	
@@ -40,6 +54,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -55,6 +71,16 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void Staking::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<Staking>(4);
+	_visitor.type_field("version", 0); _visitor.accept(version);
+	_visitor.type_field("owner", 1); _visitor.accept(owner);
+	_visitor.type_field("currency", 2); _visitor.accept(currency);
+	_visitor.type_field("reward_addr", 3); _visitor.accept(reward_addr);
+	_visitor.template type_end<Staking>(4);
+}
 
 
 } // namespace mmx

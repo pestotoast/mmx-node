@@ -6,6 +6,7 @@
 
 #include <mmx/package.hxx>
 #include <mmx/ChainParams.hxx>
+#include <mmx/Contract.hxx>
 #include <mmx/Operation.hxx>
 #include <mmx/Solution.hxx>
 #include <mmx/TransactionBase.hxx>
@@ -25,6 +26,7 @@ public:
 	std::vector<::mmx::tx_out_t> exec_outputs;
 	std::vector<std::shared_ptr<const ::mmx::Operation>> execute;
 	std::vector<std::shared_ptr<const ::mmx::Solution>> solutions;
+	std::shared_ptr<const ::mmx::Contract> deploy;
 	
 	typedef ::mmx::TransactionBase Super;
 	
@@ -40,10 +42,14 @@ public:
 	const vnx::TypeCode* get_type_code() const override;
 	
 	virtual void finalize();
+	virtual void merge_sign(std::shared_ptr<const ::mmx::Transaction> tx = nullptr);
 	virtual vnx::bool_t is_valid() const;
+	virtual vnx::bool_t is_signed() const;
 	virtual ::mmx::hash_t calc_hash() const override;
 	virtual std::shared_ptr<const ::mmx::Solution> get_solution(const uint32_t& index = 0) const;
-	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const;
+	virtual ::mmx::tx_out_t get_output(const uint32_t& index = 0) const;
+	virtual std::vector<::mmx::tx_out_t> get_all_outputs() const;
+	virtual uint64_t calc_cost(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const override;
 	
 	static std::shared_ptr<Transaction> create();
 	std::shared_ptr<vnx::Value> clone() const override;
@@ -54,6 +60,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -69,6 +77,20 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void Transaction::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<Transaction>(8);
+	_visitor.type_field("id", 0); _visitor.accept(id);
+	_visitor.type_field("version", 1); _visitor.accept(version);
+	_visitor.type_field("inputs", 2); _visitor.accept(inputs);
+	_visitor.type_field("outputs", 3); _visitor.accept(outputs);
+	_visitor.type_field("exec_outputs", 4); _visitor.accept(exec_outputs);
+	_visitor.type_field("execute", 5); _visitor.accept(execute);
+	_visitor.type_field("solutions", 6); _visitor.accept(solutions);
+	_visitor.type_field("deploy", 7); _visitor.accept(deploy);
+	_visitor.template type_end<Transaction>(8);
+}
 
 
 } // namespace mmx

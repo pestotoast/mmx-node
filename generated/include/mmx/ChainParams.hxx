@@ -21,26 +21,27 @@ public:
 	uint32_t plot_filter = 10;
 	uint32_t commit_delay = 18;
 	uint32_t finality_delay = 6;
-	uint32_t challenge_delay = 3;
-	uint32_t challenge_interval = 36;
+	uint32_t challenge_delay = 9;
+	uint32_t challenge_interval = 48;
 	uint32_t max_diff_adjust = 10;
 	uint32_t min_vdf_segments = 320;
 	uint32_t num_vdf_segments = 760;
 	uint32_t max_vdf_segments = 1024;
 	uint32_t max_tx_base_out = 10;
 	uint32_t recursive_interval = 60480;
-	uint32_t score_bits = 10;
-	uint32_t score_threshold = 1000;
-	uint32_t target_score = 125;
+	uint32_t score_bits = 16;
+	uint32_t score_target = 8192;
+	uint32_t score_threshold = 65536;
+	uint32_t max_weight_buffer = 262144;
 	uint64_t min_reward = 200000;
 	::mmx::ulong_fraction_t reward_factor;
-	uint64_t time_diff_constant = 10000;
-	uint64_t space_diff_constant = 139586437120;
+	uint64_t time_diff_constant = 1000;
+	uint64_t space_diff_constant = 100000000;
 	uint64_t initial_time_diff = 10000;
-	uint64_t initial_space_diff = 256;
+	uint64_t initial_space_diff = 10;
 	uint64_t min_txfee_io = 100;
 	uint64_t min_txfee_sign = 1000;
-	uint64_t min_txfee_exec = 100000;
+	uint64_t min_txfee_byte = 10;
 	uint64_t max_block_cost = 10000000;
 	vnx::float64_t block_time = 10;
 	std::string vdf_seed;
@@ -67,6 +68,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -82,6 +85,43 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void ChainParams::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<ChainParams>(31);
+	_visitor.type_field("port", 0); _visitor.accept(port);
+	_visitor.type_field("decimals", 1); _visitor.accept(decimals);
+	_visitor.type_field("min_ksize", 2); _visitor.accept(min_ksize);
+	_visitor.type_field("max_ksize", 3); _visitor.accept(max_ksize);
+	_visitor.type_field("plot_filter", 4); _visitor.accept(plot_filter);
+	_visitor.type_field("commit_delay", 5); _visitor.accept(commit_delay);
+	_visitor.type_field("finality_delay", 6); _visitor.accept(finality_delay);
+	_visitor.type_field("challenge_delay", 7); _visitor.accept(challenge_delay);
+	_visitor.type_field("challenge_interval", 8); _visitor.accept(challenge_interval);
+	_visitor.type_field("max_diff_adjust", 9); _visitor.accept(max_diff_adjust);
+	_visitor.type_field("min_vdf_segments", 10); _visitor.accept(min_vdf_segments);
+	_visitor.type_field("num_vdf_segments", 11); _visitor.accept(num_vdf_segments);
+	_visitor.type_field("max_vdf_segments", 12); _visitor.accept(max_vdf_segments);
+	_visitor.type_field("max_tx_base_out", 13); _visitor.accept(max_tx_base_out);
+	_visitor.type_field("recursive_interval", 14); _visitor.accept(recursive_interval);
+	_visitor.type_field("score_bits", 15); _visitor.accept(score_bits);
+	_visitor.type_field("score_target", 16); _visitor.accept(score_target);
+	_visitor.type_field("score_threshold", 17); _visitor.accept(score_threshold);
+	_visitor.type_field("max_weight_buffer", 18); _visitor.accept(max_weight_buffer);
+	_visitor.type_field("min_reward", 19); _visitor.accept(min_reward);
+	_visitor.type_field("reward_factor", 20); _visitor.accept(reward_factor);
+	_visitor.type_field("time_diff_constant", 21); _visitor.accept(time_diff_constant);
+	_visitor.type_field("space_diff_constant", 22); _visitor.accept(space_diff_constant);
+	_visitor.type_field("initial_time_diff", 23); _visitor.accept(initial_time_diff);
+	_visitor.type_field("initial_space_diff", 24); _visitor.accept(initial_space_diff);
+	_visitor.type_field("min_txfee_io", 25); _visitor.accept(min_txfee_io);
+	_visitor.type_field("min_txfee_sign", 26); _visitor.accept(min_txfee_sign);
+	_visitor.type_field("min_txfee_byte", 27); _visitor.accept(min_txfee_byte);
+	_visitor.type_field("max_block_cost", 28); _visitor.accept(max_block_cost);
+	_visitor.type_field("block_time", 29); _visitor.accept(block_time);
+	_visitor.type_field("vdf_seed", 30); _visitor.accept(vdf_seed);
+	_visitor.template type_end<ChainParams>(31);
+}
 
 
 } // namespace mmx

@@ -24,13 +24,14 @@ mmx::hash_t BlockHeader::calc_hash() const
 
 	buffer.reserve(64 * 1024);
 
+	// TODO: write_bytes(out, get_type_hash());
+	// TODO: write_bytes(out, version);
 	write_bytes(out, prev);
 	write_bytes(out, height);
 	write_bytes(out, time_diff);
 	write_bytes(out, space_diff);
 	write_bytes(out, vdf_iters);
-	write_bytes(out, vdf_output[0]);
-	write_bytes(out, vdf_output[1]);
+	write_bytes(out, vdf_output);
 	write_bytes(out, proof ? proof->calc_hash() : hash_t());
 	write_bytes(out, tx_base ? tx_base->calc_hash() : hash_t());
 	write_bytes(out, tx_hash);

@@ -5,31 +5,33 @@
 #define INCLUDE_mmx_contract_Token_HXX_
 
 #include <mmx/contract/package.hxx>
+#include <mmx/ChainParams.hxx>
+#include <mmx/Context.hxx>
+#include <mmx/Contract.hxx>
+#include <mmx/Operation.hxx>
 #include <mmx/Solution.hxx>
 #include <mmx/addr_t.hpp>
-#include <mmx/contract/Condition.hxx>
-#include <mmx/contract/NFT.hxx>
 #include <mmx/hash_t.hpp>
+#include <mmx/tx_out_t.hxx>
 #include <mmx/ulong_fraction_t.hxx>
 
 
 namespace mmx {
 namespace contract {
 
-class Token : public ::mmx::contract::NFT {
+class Token : public ::mmx::Contract {
 public:
 	
 	std::string name;
+	std::string symbol;
 	std::string web_url;
 	std::string icon_url;
-	::mmx::addr_t symbol;
-	std::shared_ptr<const ::mmx::Solution> symbol_sig;
-	int32_t decimals = 0;
+	uint32_t decimals = 0;
+	vnx::optional<::mmx::addr_t> owner;
 	::mmx::ulong_fraction_t time_factor;
-	std::shared_ptr<const ::mmx::contract::Condition> stake_condition;
 	std::map<::mmx::addr_t, ::mmx::ulong_fraction_t> stake_factors;
 	
-	typedef ::mmx::contract::NFT Super;
+	typedef ::mmx::Contract Super;
 	
 	static const vnx::Hash64 VNX_TYPE_HASH;
 	static const vnx::Hash64 VNX_CODE_HASH;
@@ -42,6 +44,13 @@ public:
 	std::string get_type_name() const override;
 	const vnx::TypeCode* get_type_code() const override;
 	
+	virtual vnx::bool_t is_valid() const override;
+	virtual ::mmx::hash_t calc_hash() const override;
+	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const override;
+	virtual std::vector<::mmx::addr_t> get_dependency() const override;
+	virtual vnx::optional<::mmx::addr_t> get_owner() const override;
+	virtual std::vector<::mmx::tx_out_t> validate(std::shared_ptr<const ::mmx::Operation> operation = nullptr, std::shared_ptr<const ::mmx::Context> context = nullptr) const override;
+	
 	static std::shared_ptr<Token> create();
 	std::shared_ptr<vnx::Value> clone() const override;
 	
@@ -51,6 +60,8 @@ public:
 	void read(std::istream& _in) override;
 	void write(std::ostream& _out) const override;
 	
+	template<typename T>
+	void accept_generic(T& _visitor) const;
 	void accept(vnx::Visitor& _visitor) const override;
 	
 	vnx::Object to_object() const override;
@@ -66,6 +77,21 @@ public:
 	static std::shared_ptr<vnx::TypeCode> static_create_type_code();
 	
 };
+
+template<typename T>
+void Token::accept_generic(T& _visitor) const {
+	_visitor.template type_begin<Token>(9);
+	_visitor.type_field("version", 0); _visitor.accept(version);
+	_visitor.type_field("name", 1); _visitor.accept(name);
+	_visitor.type_field("symbol", 2); _visitor.accept(symbol);
+	_visitor.type_field("web_url", 3); _visitor.accept(web_url);
+	_visitor.type_field("icon_url", 4); _visitor.accept(icon_url);
+	_visitor.type_field("decimals", 5); _visitor.accept(decimals);
+	_visitor.type_field("owner", 6); _visitor.accept(owner);
+	_visitor.type_field("time_factor", 7); _visitor.accept(time_factor);
+	_visitor.type_field("stake_factors", 8); _visitor.accept(stake_factors);
+	_visitor.template type_end<Token>(9);
+}
 
 
 } // namespace mmx
