@@ -31,6 +31,9 @@ void Wallet::init()
 
 void Wallet::main()
 {
+	if(key_files.size() > max_key_files) {
+		throw std::logic_error("too many key files");
+	}
 	params = get_params();
 
 	node = std::make_shared<NodeClient>(node_server);
@@ -46,12 +49,27 @@ void Wallet::main()
 			} else {
 				bls_wallets.push_back(nullptr);
 			}
-			wallets.push_back(std::make_shared<ECDSA_Wallet>(key_file, params, num_addresses));
+			account_t config;
+			config.name = "Default";
+			config.key_file = file_path;
+			config.num_addresses = num_addresses;
+			wallets.push_back(std::make_shared<ECDSA_Wallet>(key_file, config, params));
 		}
 		else {
 			wallets.push_back(nullptr);
 			bls_wallets.push_back(nullptr);
 			log(ERROR) << "Failed to read wallet '" << file_path << "'";
+		}
+	}
+	wallets.resize(max_key_files + accounts.size());
+
+	for(size_t i = 0; i < accounts.size(); ++i) {
+		auto config = accounts[i];
+		config.key_file = storage_path + config.key_file;
+		if(auto key_file = vnx::read_from_file<KeyFile>(config.key_file)) {
+			wallets[max_key_files + i] = std::make_shared<ECDSA_Wallet>(key_file, config, params);
+		} else {
+			log(ERROR) << "Failed to read wallet '" << config.key_file << "'";
 		}
 	}
 	Super::main();
@@ -165,8 +183,13 @@ hash_t Wallet::deploy(const uint32_t& index, std::shared_ptr<const Contract> con
 	return tx->id;
 }
 
-std::shared_ptr<const Transaction> Wallet::sign_off(const uint32_t& index, std::shared_ptr<const Transaction> tx, const vnx::bool_t& cover_fee) const
+std::shared_ptr<const Transaction>
+Wallet::sign_off(	const uint32_t& index, std::shared_ptr<const Transaction> tx,
+					const vnx::bool_t& cover_fee, const std::vector<std::pair<txio_key_t, utxo_t>>& utxo_list) const
 {
+	if(!tx) {
+		return nullptr;
+	}
 	const auto wallet = get_wallet(index);
 
 	std::unordered_set<txio_key_t> spent_keys;
@@ -182,13 +205,15 @@ std::shared_ptr<const Transaction> Wallet::sign_off(const uint32_t& index, std::
 			break;
 		}
 	}
+	std::unordered_map<addr_t, addr_t> owner_map;
 	// TODO: lookup owner_map
 
 	auto copy = vnx::clone(tx);
 	if(cover_fee) {
-		wallet->gather_fee(copy, spent_map, {}, 0, {});
+		const std::unordered_map<txio_key_t, utxo_t> utxo_map(utxo_list.begin(), utxo_list.end());
+		wallet->gather_fee(copy, spent_map, {}, 0, owner_map, utxo_map);
 	}
-	wallet->sign_off(copy, spent_map);
+	wallet->sign_off(copy, spent_map, owner_map);
 	return copy;
 }
 
@@ -196,6 +221,12 @@ std::shared_ptr<const Solution> Wallet::sign_msg(const uint32_t& index, const ad
 {
 	const auto wallet = get_wallet(index);
 	return wallet->sign_msg(address, msg);
+}
+
+void Wallet::mark_spent(const uint32_t& index, const std::vector<txio_key_t>& keys)
+{
+	const auto wallet = get_wallet(index);
+	wallet->spent_set.insert(keys.begin(), keys.end());
 }
 
 void Wallet::reserve(const uint32_t& index, const std::vector<txio_key_t>& keys)
@@ -381,6 +412,32 @@ std::vector<std::shared_ptr<const FarmerKeys>> Wallet::get_all_farmer_keys() con
 		}
 	}
 	return res;
+}
+
+std::map<uint32_t, account_t> Wallet::get_accounts() const
+{
+	std::map<uint32_t, account_t> res;
+	for(size_t i = 0; i < wallets.size(); ++i) {
+		if(auto wallet = wallets[i]) {
+			res[i] = wallet->config;
+		}
+	}
+	return res;
+}
+
+void Wallet::add_account(const uint32_t& index, const account_t& config)
+{
+	if(index >= max_accounts) {
+		throw std::logic_error("index >= max_accounts");
+	}
+	if(index >= wallets.size()) {
+		wallets.resize(index + 1);
+	}
+	if(auto key_file = vnx::read_from_file<KeyFile>(config.key_file)) {
+		wallets[index] = std::make_shared<ECDSA_Wallet>(key_file, config, params);
+	} else {
+		throw std::runtime_error("failed to read key file");
+	}
 }
 
 hash_t Wallet::get_master_seed(const uint32_t& index) const

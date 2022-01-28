@@ -5,6 +5,7 @@
 #define INCLUDE_mmx_exchange_Client_execute_return_HXX_
 
 #include <mmx/exchange/package.hxx>
+#include <mmx/hash_t.hpp>
 #include <vnx/Value.h>
 
 
@@ -14,6 +15,7 @@ namespace exchange {
 class Client_execute_return : public ::vnx::Value {
 public:
 	
+	::mmx::hash_t _ret_0;
 	
 	typedef ::vnx::Value Super;
 	
@@ -57,8 +59,9 @@ public:
 
 template<typename T>
 void Client_execute_return::accept_generic(T& _visitor) const {
-	_visitor.template type_begin<Client_execute_return>(0);
-	_visitor.template type_end<Client_execute_return>(0);
+	_visitor.template type_begin<Client_execute_return>(1);
+	_visitor.type_field("_ret_0", 0); _visitor.accept(_ret_0);
+	_visitor.template type_end<Client_execute_return>(1);
 }
 
 

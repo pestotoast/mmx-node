@@ -10,6 +10,7 @@
 
 #include <mmx/exchange/ClientBase.hxx>
 #include <mmx/exchange/amount_t.hxx>
+#include <mmx/exchange/matched_order_t.hxx>
 #include <mmx/Request.hxx>
 #include <mmx/Return.hxx>
 #include <mmx/NodeClient.hxx>
@@ -33,6 +34,13 @@ protected:
 		std::unordered_set<txio_key_t> order_set;
 	};
 
+	struct match_job_t {
+		size_t num_returns = 0;
+		size_t num_requests = 0;
+		vnx::request_id_t request_id;
+		std::vector<matched_order_t> result;
+	};
+
 	void init() override;
 
 	void main() override;
@@ -41,21 +49,25 @@ protected:
 
 	vnx::optional<open_order_t> get_order(const txio_key_t& key) const override;
 
-	std::shared_ptr<const OrderBundle> get_offer(const uint64_t& id) const override;
+	std::shared_ptr<const OfferBundle> get_offer(const uint64_t& id) const override;
 
-	std::vector<std::shared_ptr<const OrderBundle>> get_all_offers() const override;
+	std::vector<std::shared_ptr<const OfferBundle>> get_all_offers() const override;
 
-	std::shared_ptr<const OrderBundle> make_offer(const uint32_t& wallet, const trade_pair_t& pair, const uint64_t& bid, const uint64_t& ask) const override;
+	void cancel_offer(const uint64_t& id) override;
+
+	void cancel_all() override;
+
+	std::shared_ptr<const OfferBundle> make_offer(const uint32_t& wallet, const trade_pair_t& pair, const uint64_t& bid, const uint64_t& ask) const override;
 
 	std::vector<trade_order_t> make_trade(const uint32_t& wallet, const trade_pair_t& pair, const uint64_t& bid, const vnx::optional<uint64_t>& ask) const override;
 
-	void place(std::shared_ptr<const OrderBundle> offer) override;
+	void place(std::shared_ptr<const OfferBundle> offer) override;
 
 	std::shared_ptr<const Transaction> approve(std::shared_ptr<const Transaction> tx) const override;
 
-	void execute_async(const std::string& server, const uint32_t& wallet, std::shared_ptr<const Transaction> tx, const vnx::request_id_t& request_id) override;
+	void execute_async(const std::string& server, const uint32_t& wallet, const matched_order_t& order, const vnx::request_id_t& request_id) const override;
 
-	void match_async(const std::string& server, const trade_pair_t& pair, const trade_order_t& order, const vnx::request_id_t& request_id) const override;
+	void match_async(const std::string& server, const trade_pair_t& pair, const std::vector<trade_order_t>& orders, const vnx::request_id_t& request_id) const override;
 
 	void get_orders_async(const std::string& server, const trade_pair_t& pair, const vnx::request_id_t& request_id) const override;
 
@@ -64,7 +76,9 @@ protected:
 	void handle(std::shared_ptr<const Block> block) override;
 
 private:
-	void send_offer(uint64_t server, std::shared_ptr<const OrderBundle> offer);
+	std::shared_ptr<OfferBundle> find_offer(const uint64_t& id) const;
+
+	void send_offer(uint64_t server, std::shared_ptr<const OfferBundle> offer);
 
 	void send_to(uint64_t client, std::shared_ptr<const vnx::Value> msg, bool reliable = true);
 
@@ -112,7 +126,7 @@ private:
 	std::unordered_map<uint64_t, std::shared_ptr<peer_t>> peer_map;
 
 	std::unordered_map<txio_key_t, open_order_t> order_map;
-	std::unordered_map<uint64_t, std::shared_ptr<OrderBundle>> offer_map;
+	std::map<uint64_t, std::shared_ptr<OfferBundle>> offer_map;
 
 	mutable std::unordered_map<uint32_t, std::function<void(std::shared_ptr<const vnx::Value>)>> return_map;
 

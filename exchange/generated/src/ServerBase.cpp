@@ -25,6 +25,7 @@
 #include <mmx/exchange/Server_reject_return.hxx>
 #include <mmx/exchange/amount_t.hxx>
 #include <mmx/exchange/limit_order_t.hxx>
+#include <mmx/exchange/matched_order_t.hxx>
 #include <mmx/exchange/order_t.hxx>
 #include <mmx/exchange/trade_order_t.hxx>
 #include <mmx/exchange/trade_pair_t.hxx>
@@ -60,7 +61,7 @@ namespace exchange {
 
 
 const vnx::Hash64 ServerBase::VNX_TYPE_HASH(0x573a9f3b899c4e1dull);
-const vnx::Hash64 ServerBase::VNX_CODE_HASH(0xc7ce6658233f650bull);
+const vnx::Hash64 ServerBase::VNX_CODE_HASH(0x850d7a00d1fc55baull);
 
 ServerBase::ServerBase(const std::string& _vnx_name)
 	:	MsgServer::MsgServer(_vnx_name)
@@ -293,7 +294,7 @@ std::shared_ptr<vnx::TypeCode> ServerBase::static_create_type_code() {
 	auto type_code = std::make_shared<vnx::TypeCode>();
 	type_code->name = "mmx.exchange.Server";
 	type_code->type_hash = vnx::Hash64(0x573a9f3b899c4e1dull);
-	type_code->code_hash = vnx::Hash64(0xc7ce6658233f650bull);
+	type_code->code_hash = vnx::Hash64(0x850d7a00d1fc55baull);
 	type_code->is_native = true;
 	type_code->native_size = sizeof(::mmx::exchange::ServerBase);
 	type_code->parents.resize(2);
@@ -411,7 +412,7 @@ std::shared_ptr<vnx::TypeCode> ServerBase::static_create_type_code() {
 		auto& field = type_code->fields[13];
 		field.data_size = 4;
 		field.name = "trade_timeout_ms";
-		field.value = vnx::to_string(10000);
+		field.value = vnx::to_string(5000);
 		field.code = {7};
 	}
 	{
@@ -552,7 +553,7 @@ void ServerBase::execute_async_return(const vnx::request_id_t& _request_id) cons
 	vnx_async_return(_request_id, _return_value);
 }
 
-void ServerBase::match_async_return(const vnx::request_id_t& _request_id, const std::shared_ptr<const ::mmx::Transaction>& _ret_0) const {
+void ServerBase::match_async_return(const vnx::request_id_t& _request_id, const ::mmx::exchange::matched_order_t& _ret_0) const {
 	auto _return_value = ::mmx::exchange::Server_match_return::create();
 	_return_value->_ret_0 = _ret_0;
 	vnx_async_return(_request_id, _return_value);

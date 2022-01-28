@@ -7,6 +7,7 @@
 #include <mmx/package.hxx>
 #include <mmx/Block.hxx>
 #include <vnx/Module.h>
+#include <vnx/TopicPtr.hpp>
 #include <vnx/addons/HttpData.hxx>
 #include <vnx/addons/HttpRequest.hxx>
 #include <vnx/addons/HttpResponse.hxx>
@@ -17,7 +18,10 @@ namespace mmx {
 class WebAPIBase : public ::vnx::Module {
 public:
 	
+	::vnx::TopicPtr input_blocks = "node.verified_blocks";
 	std::string node_server = "Node";
+	uint32_t max_block_history = 1000;
+	uint64_t max_tx_history = 10000;
 	
 	typedef ::vnx::Module Super;
 	
@@ -67,9 +71,12 @@ protected:
 
 template<typename T>
 void WebAPIBase::accept_generic(T& _visitor) const {
-	_visitor.template type_begin<WebAPIBase>(1);
-	_visitor.type_field("node_server", 0); _visitor.accept(node_server);
-	_visitor.template type_end<WebAPIBase>(1);
+	_visitor.template type_begin<WebAPIBase>(4);
+	_visitor.type_field("input_blocks", 0); _visitor.accept(input_blocks);
+	_visitor.type_field("node_server", 1); _visitor.accept(node_server);
+	_visitor.type_field("max_block_history", 2); _visitor.accept(max_block_history);
+	_visitor.type_field("max_tx_history", 3); _visitor.accept(max_tx_history);
+	_visitor.template type_end<WebAPIBase>(4);
 }
 
 
