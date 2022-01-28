@@ -1,6 +1,6 @@
 FROM ubuntu
 RUN apt update && \
-    DEBIAN_FRONTEND=noninteractive TZ=Etc/UT apt install -y git cmake build-essential libsecp256k1-dev libsodium-dev zlib1g-dev ocl-icd-opencl-dev clinfo && \
+    DEBIAN_FRONTEND=noninteractive TZ=Etc/UT apt install -y git cmake build-essential libsecp256k1-dev librocksdb-dev libsodium-dev zlib1g-dev ocl-icd-opencl-dev clinfo && \
     apt install -y intel-opencl-icd beignet-opencl-icd && \
     git clone https://github.com/madMAx43v3r/mmx-node.git && \
     cd mmx-node && \
