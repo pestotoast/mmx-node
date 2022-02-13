@@ -13,12 +13,20 @@
 #include <mmx/exchange/Server_cancel_return.hxx>
 #include <mmx/exchange/Server_execute.hxx>
 #include <mmx/exchange/Server_execute_return.hxx>
+#include <mmx/exchange/Server_get_history.hxx>
+#include <mmx/exchange/Server_get_history_return.hxx>
+#include <mmx/exchange/Server_get_min_trade.hxx>
+#include <mmx/exchange/Server_get_min_trade_return.hxx>
 #include <mmx/exchange/Server_get_orders.hxx>
 #include <mmx/exchange/Server_get_orders_return.hxx>
 #include <mmx/exchange/Server_get_price.hxx>
 #include <mmx/exchange/Server_get_price_return.hxx>
+#include <mmx/exchange/Server_get_trade_pairs.hxx>
+#include <mmx/exchange/Server_get_trade_pairs_return.hxx>
 #include <mmx/exchange/Server_match.hxx>
 #include <mmx/exchange/Server_match_return.hxx>
+#include <mmx/exchange/Server_ping.hxx>
+#include <mmx/exchange/Server_ping_return.hxx>
 #include <mmx/exchange/Server_place.hxx>
 #include <mmx/exchange/Server_place_return.hxx>
 #include <mmx/exchange/Server_reject.hxx>
@@ -27,6 +35,7 @@
 #include <mmx/exchange/limit_order_t.hxx>
 #include <mmx/exchange/matched_order_t.hxx>
 #include <mmx/exchange/order_t.hxx>
+#include <mmx/exchange/trade_entry_t.hxx>
 #include <mmx/exchange/trade_order_t.hxx>
 #include <mmx/exchange/trade_pair_t.hxx>
 #include <mmx/hash_t.hpp>
@@ -61,7 +70,7 @@ namespace exchange {
 
 
 const vnx::Hash64 ServerBase::VNX_TYPE_HASH(0x573a9f3b899c4e1dull);
-const vnx::Hash64 ServerBase::VNX_CODE_HASH(0x850d7a00d1fc55baull);
+const vnx::Hash64 ServerBase::VNX_CODE_HASH(0xb7c0cd90f99964a7ull);
 
 ServerBase::ServerBase(const std::string& _vnx_name)
 	:	MsgServer::MsgServer(_vnx_name)
@@ -69,6 +78,7 @@ ServerBase::ServerBase(const std::string& _vnx_name)
 	vnx::read_config(vnx_name + ".input_blocks", input_blocks);
 	vnx::read_config(vnx_name + ".trade_timeout_ms", trade_timeout_ms);
 	vnx::read_config(vnx_name + ".node_server", node_server);
+	vnx::read_config(vnx_name + ".storage_path", storage_path);
 }
 
 vnx::Hash64 ServerBase::get_type_hash() const {
@@ -101,6 +111,7 @@ void ServerBase::accept(vnx::Visitor& _visitor) const {
 	_visitor.type_field(_type_code->fields[12], 12); vnx::accept(_visitor, input_blocks);
 	_visitor.type_field(_type_code->fields[13], 13); vnx::accept(_visitor, trade_timeout_ms);
 	_visitor.type_field(_type_code->fields[14], 14); vnx::accept(_visitor, node_server);
+	_visitor.type_field(_type_code->fields[15], 15); vnx::accept(_visitor, storage_path);
 	_visitor.type_end(*_type_code);
 }
 
@@ -121,6 +132,7 @@ void ServerBase::write(std::ostream& _out) const {
 	_out << ", \"input_blocks\": "; vnx::write(_out, input_blocks);
 	_out << ", \"trade_timeout_ms\": "; vnx::write(_out, trade_timeout_ms);
 	_out << ", \"node_server\": "; vnx::write(_out, node_server);
+	_out << ", \"storage_path\": "; vnx::write(_out, storage_path);
 	_out << "}";
 }
 
@@ -148,6 +160,7 @@ vnx::Object ServerBase::to_object() const {
 	_object["input_blocks"] = input_blocks;
 	_object["trade_timeout_ms"] = trade_timeout_ms;
 	_object["node_server"] = node_server;
+	_object["storage_path"] = storage_path;
 	return _object;
 }
 
@@ -177,6 +190,8 @@ void ServerBase::from_object(const vnx::Object& _object) {
 			_entry.second.to(show_warnings);
 		} else if(_entry.first == "stats_interval_ms") {
 			_entry.second.to(stats_interval_ms);
+		} else if(_entry.first == "storage_path") {
+			_entry.second.to(storage_path);
 		} else if(_entry.first == "tcp_keepalive") {
 			_entry.second.to(tcp_keepalive);
 		} else if(_entry.first == "tcp_no_delay") {
@@ -233,6 +248,9 @@ vnx::Variant ServerBase::get_field(const std::string& _name) const {
 	if(_name == "node_server") {
 		return vnx::Variant(node_server);
 	}
+	if(_name == "storage_path") {
+		return vnx::Variant(storage_path);
+	}
 	return vnx::Variant();
 }
 
@@ -267,6 +285,8 @@ void ServerBase::set_field(const std::string& _name, const vnx::Variant& _value)
 		_value.to(trade_timeout_ms);
 	} else if(_name == "node_server") {
 		_value.to(node_server);
+	} else if(_name == "storage_path") {
+		_value.to(storage_path);
 	}
 }
 
@@ -294,13 +314,13 @@ std::shared_ptr<vnx::TypeCode> ServerBase::static_create_type_code() {
 	auto type_code = std::make_shared<vnx::TypeCode>();
 	type_code->name = "mmx.exchange.Server";
 	type_code->type_hash = vnx::Hash64(0x573a9f3b899c4e1dull);
-	type_code->code_hash = vnx::Hash64(0x850d7a00d1fc55baull);
+	type_code->code_hash = vnx::Hash64(0xb7c0cd90f99964a7ull);
 	type_code->is_native = true;
 	type_code->native_size = sizeof(::mmx::exchange::ServerBase);
 	type_code->parents.resize(2);
 	type_code->parents[0] = ::vnx::addons::MsgServerBase::static_get_type_code();
 	type_code->parents[1] = ::vnx::addons::TcpServerBase::static_get_type_code();
-	type_code->methods.resize(17);
+	type_code->methods.resize(21);
 	type_code->methods[0] = ::vnx::ModuleInterface_vnx_get_config_object::static_get_type_code();
 	type_code->methods[1] = ::vnx::ModuleInterface_vnx_get_config::static_get_type_code();
 	type_code->methods[2] = ::vnx::ModuleInterface_vnx_set_config_object::static_get_type_code();
@@ -312,13 +332,17 @@ std::shared_ptr<vnx::TypeCode> ServerBase::static_create_type_code() {
 	type_code->methods[8] = ::vnx::ModuleInterface_vnx_self_test::static_get_type_code();
 	type_code->methods[9] = ::mmx::exchange::Server_execute::static_get_type_code();
 	type_code->methods[10] = ::mmx::exchange::Server_match::static_get_type_code();
-	type_code->methods[11] = ::mmx::exchange::Server_get_orders::static_get_type_code();
-	type_code->methods[12] = ::mmx::exchange::Server_get_price::static_get_type_code();
-	type_code->methods[13] = ::mmx::exchange::Server_place::static_get_type_code();
-	type_code->methods[14] = ::mmx::exchange::Server_cancel::static_get_type_code();
-	type_code->methods[15] = ::mmx::exchange::Server_reject::static_get_type_code();
-	type_code->methods[16] = ::mmx::exchange::Server_approve::static_get_type_code();
-	type_code->fields.resize(15);
+	type_code->methods[11] = ::mmx::exchange::Server_get_trade_pairs::static_get_type_code();
+	type_code->methods[12] = ::mmx::exchange::Server_get_orders::static_get_type_code();
+	type_code->methods[13] = ::mmx::exchange::Server_get_history::static_get_type_code();
+	type_code->methods[14] = ::mmx::exchange::Server_get_price::static_get_type_code();
+	type_code->methods[15] = ::mmx::exchange::Server_get_min_trade::static_get_type_code();
+	type_code->methods[16] = ::mmx::exchange::Server_place::static_get_type_code();
+	type_code->methods[17] = ::mmx::exchange::Server_cancel::static_get_type_code();
+	type_code->methods[18] = ::mmx::exchange::Server_reject::static_get_type_code();
+	type_code->methods[19] = ::mmx::exchange::Server_approve::static_get_type_code();
+	type_code->methods[20] = ::mmx::exchange::Server_ping::static_get_type_code();
+	type_code->fields.resize(16);
 	{
 		auto& field = type_code->fields[0];
 		field.data_size = 4;
@@ -422,6 +446,13 @@ std::shared_ptr<vnx::TypeCode> ServerBase::static_create_type_code() {
 		field.value = vnx::to_string("Node");
 		field.code = {32};
 	}
+	{
+		auto& field = type_code->fields[15];
+		field.is_extended = true;
+		field.name = "storage_path";
+		field.value = vnx::to_string("exchange/server/");
+		field.code = {32};
+	}
 	type_code->build();
 	return type_code;
 }
@@ -503,19 +534,37 @@ std::shared_ptr<vnx::Value> ServerBase::vnx_call_switch(std::shared_ptr<const vn
 		}
 		case 0x7d6b1feaf4d8a485ull: {
 			auto _args = std::static_pointer_cast<const ::mmx::exchange::Server_match>(_method);
-			match_async(_args->pair, _args->order, _request_id);
+			match_async(_args->order, _request_id);
 			return nullptr;
+		}
+		case 0x8757a05fb1ee1637ull: {
+			auto _args = std::static_pointer_cast<const ::mmx::exchange::Server_get_trade_pairs>(_method);
+			auto _return_value = ::mmx::exchange::Server_get_trade_pairs_return::create();
+			_return_value->_ret_0 = get_trade_pairs();
+			return _return_value;
 		}
 		case 0x75d1f7f88288f10cull: {
 			auto _args = std::static_pointer_cast<const ::mmx::exchange::Server_get_orders>(_method);
 			auto _return_value = ::mmx::exchange::Server_get_orders_return::create();
-			_return_value->_ret_0 = get_orders(_args->pair);
+			_return_value->_ret_0 = get_orders(_args->pair, _args->limit);
+			return _return_value;
+		}
+		case 0xd2017ab2923aadfbull: {
+			auto _args = std::static_pointer_cast<const ::mmx::exchange::Server_get_history>(_method);
+			auto _return_value = ::mmx::exchange::Server_get_history_return::create();
+			_return_value->_ret_0 = get_history(_args->pair, _args->limit);
 			return _return_value;
 		}
 		case 0x97209facb005ead5ull: {
 			auto _args = std::static_pointer_cast<const ::mmx::exchange::Server_get_price>(_method);
 			auto _return_value = ::mmx::exchange::Server_get_price_return::create();
 			_return_value->_ret_0 = get_price(_args->want, _args->have);
+			return _return_value;
+		}
+		case 0xda60d78d7e48e2abull: {
+			auto _args = std::static_pointer_cast<const ::mmx::exchange::Server_get_min_trade>(_method);
+			auto _return_value = ::mmx::exchange::Server_get_min_trade_return::create();
+			_return_value->_ret_0 = get_min_trade(_args->pair);
 			return _return_value;
 		}
 		case 0x957913dc32e3d68cull: {
@@ -539,6 +588,12 @@ std::shared_ptr<vnx::Value> ServerBase::vnx_call_switch(std::shared_ptr<const vn
 			auto _args = std::static_pointer_cast<const ::mmx::exchange::Server_approve>(_method);
 			auto _return_value = ::mmx::exchange::Server_approve_return::create();
 			approve(_args->client, _args->tx);
+			return _return_value;
+		}
+		case 0x7a04c726acd61ce8ull: {
+			auto _args = std::static_pointer_cast<const ::mmx::exchange::Server_ping>(_method);
+			auto _return_value = ::mmx::exchange::Server_ping_return::create();
+			ping(_args->client);
 			return _return_value;
 		}
 	}
@@ -646,6 +701,7 @@ void read(TypeInput& in, ::mmx::exchange::ServerBase& value, const TypeCode* typ
 			case 1: vnx::read(in, value.host, type_code, _field->code.data()); break;
 			case 12: vnx::read(in, value.input_blocks, type_code, _field->code.data()); break;
 			case 14: vnx::read(in, value.node_server, type_code, _field->code.data()); break;
+			case 15: vnx::read(in, value.storage_path, type_code, _field->code.data()); break;
 			default: vnx::skip(in, type_code, _field->code.data());
 		}
 	}
@@ -680,6 +736,7 @@ void write(TypeOutput& out, const ::mmx::exchange::ServerBase& value, const Type
 	vnx::write(out, value.host, type_code, type_code->fields[1].code.data());
 	vnx::write(out, value.input_blocks, type_code, type_code->fields[12].code.data());
 	vnx::write(out, value.node_server, type_code, type_code->fields[14].code.data());
+	vnx::write(out, value.storage_path, type_code, type_code->fields[15].code.data());
 }
 
 void read(std::istream& in, ::mmx::exchange::ServerBase& value) {

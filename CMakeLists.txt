@@ -8,8 +8,8 @@ set(ARITH "easy" CACHE STRING "BLS ARITH")
 set(BUILD_BLS_PYTHON_BINDINGS OFF CACHE BOOL "BUILD_BLS_PYTHON_BINDINGS")
 set(BUILD_BLS_TESTS OFF CACHE BOOL "BUILD_BLS_TESTS")
 set(BUILD_BLS_BENCHMARKS OFF CACHE BOOL "BUILD_BLS_BENCHMARKS")
-set(LIBBECH32_BUILD_GOOGLETEST OFF CACHE BOOL "LIBBECH32_BUILD_GOOGLETEST")
-set(LIBBECH32_BUILD_RAPIDCHECK OFF CACHE BOOL "LIBBECH32_BUILD_RAPIDCHECK")
+set(LIBBECH32_BUILD_TESTS OFF CACHE BOOL "LIBBECH32_BUILD_TESTS")
+set(LIBBECH32_BUILD_EXAMPLES OFF CACHE BOOL "LIBBECH32_BUILD_EXAMPLES")
 
 add_subdirectory(vnx-base)
 add_subdirectory(vnx-addons)
@@ -20,6 +20,8 @@ add_subdirectory(exchange)
 
 find_package(OpenCL)
 find_package(Threads REQUIRED)
+
+find_library(JEMALLOC_LIB NAMES jemalloc)
 
 include(cmake/chiapos.cmake)
 
@@ -111,11 +113,17 @@ target_include_directories(mmx_chiapos
 )
 
 target_link_libraries(mmx_iface uint256_t secp256k1 bech32 bls vnx_addons vnx_base)
-target_link_libraries(mmx_modules vnx_rocksdb mmx_chiapos mmx_iface)
+target_link_libraries(mmx_modules vnx_rocksdb mmx_chiapos mmx_iface mmx_exchange)
 
 if(OpenCL_FOUND)
 	target_link_libraries(mmx_modules automy_basic_opencl)
 	target_compile_definitions(mmx_modules PUBLIC WITH_OPENCL)
+endif()
+
+if(JEMALLOC_LIB)
+	message(STATUS "Found jemalloc")
+	target_link_libraries(mmx_modules ${JEMALLOC_LIB})
+	target_compile_definitions(mmx_modules PUBLIC WITH_JEMALLOC)
 endif()
 
 add_executable(mmx src/mmx.cpp)

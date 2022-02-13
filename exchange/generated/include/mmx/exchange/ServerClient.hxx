@@ -12,6 +12,7 @@
 #include <mmx/exchange/limit_order_t.hxx>
 #include <mmx/exchange/matched_order_t.hxx>
 #include <mmx/exchange/order_t.hxx>
+#include <mmx/exchange/trade_entry_t.hxx>
 #include <mmx/exchange/trade_order_t.hxx>
 #include <mmx/exchange/trade_pair_t.hxx>
 #include <mmx/hash_t.hpp>
@@ -60,11 +61,17 @@ public:
 	
 	void execute_async(std::shared_ptr<const ::mmx::Transaction> tx = nullptr);
 	
-	::mmx::exchange::matched_order_t match(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const ::mmx::exchange::trade_order_t& order = ::mmx::exchange::trade_order_t());
+	::mmx::exchange::matched_order_t match(const ::mmx::exchange::trade_order_t& order = ::mmx::exchange::trade_order_t());
 	
-	std::vector<::mmx::exchange::order_t> get_orders(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t());
+	std::vector<::mmx::exchange::trade_pair_t> get_trade_pairs();
+	
+	std::vector<::mmx::exchange::order_t> get_orders(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const int32_t& limit = -1);
+	
+	std::vector<::mmx::exchange::trade_entry_t> get_history(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const int32_t& limit = -1);
 	
 	::mmx::ulong_fraction_t get_price(const ::mmx::addr_t& want = ::mmx::addr_t(), const ::mmx::exchange::amount_t& have = ::mmx::exchange::amount_t());
+	
+	::mmx::ulong_fraction_t get_min_trade(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t());
 	
 	std::vector<::mmx::exchange::order_t> place(const uint64_t& client = 0, const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const ::mmx::exchange::limit_order_t& order = ::mmx::exchange::limit_order_t());
 	
@@ -79,6 +86,10 @@ public:
 	void approve(const uint64_t& client = 0, std::shared_ptr<const ::mmx::Transaction> tx = nullptr);
 	
 	void approve_async(const uint64_t& client = 0, std::shared_ptr<const ::mmx::Transaction> tx = nullptr);
+	
+	void ping(const uint64_t& client = 0);
+	
+	void ping_async(const uint64_t& client = 0);
 	
 };
 

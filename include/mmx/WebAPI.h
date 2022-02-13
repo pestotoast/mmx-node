@@ -10,6 +10,8 @@
 
 #include <mmx/WebAPIBase.hxx>
 #include <mmx/NodeAsyncClient.hxx>
+#include <mmx/WalletAsyncClient.hxx>
+#include <mmx/exchange/ClientAsyncClient.hxx>
 #include <mmx/Block.hxx>
 
 
@@ -46,6 +48,9 @@ private:
 
 	void render_block(const vnx::request_id_t& request_id, std::shared_ptr<const Block> block) const;
 
+	void render_blocks(	const vnx::request_id_t& request_id, const size_t limit, const size_t offset,
+						std::shared_ptr<std::vector<vnx::Variant>> result, std::shared_ptr<const Block> block) const;
+
 	void render_transaction(const vnx::request_id_t& request_id, const vnx::optional<tx_info_t>& info) const;
 
 	void render_transactions(	const vnx::request_id_t& request_id, const size_t limit, const size_t offset,
@@ -57,8 +62,13 @@ private:
 
 	void render_address(const vnx::request_id_t& request_id, const addr_t& address, const std::map<addr_t, uint64_t>& balances) const;
 
-	void render_history(const vnx::request_id_t& request_id, const addr_t& address,
-						const size_t limit, const size_t offset, std::vector<tx_entry_t> history) const;
+	void render_balances(const vnx::request_id_t& request_id, const vnx::optional<addr_t>& currency, const std::map<addr_t, balance_t>& balances) const;
+
+	void render_history(const vnx::request_id_t& request_id, const size_t limit, const size_t offset, std::vector<tx_entry_t> history) const;
+
+	void execute_trades(const std::string& server, const uint32_t index, const std::vector<exchange::matched_order_t>& orders,
+						const size_t offset, std::shared_ptr<std::vector<vnx::Object>> result, std::shared_ptr<RenderContext> context,
+						vnx::request_id_t request_id, const hash_t& txid, const vnx::exception& ex, bool is_fail) const;
 
 	void get_context(	const std::unordered_set<addr_t>& addr_set, const vnx::request_id_t& request_id,
 						const std::function<void(std::shared_ptr<RenderContext>)>& callback) const;
@@ -73,7 +83,11 @@ private:
 
 private:
 	std::shared_ptr<NodeAsyncClient> node;
+	std::shared_ptr<WalletAsyncClient> wallet;
+	std::shared_ptr<exchange::ClientAsyncClient> exch_client;
 	std::shared_ptr<const ChainParams> params;
+
+	mutable std::map<uint64_t, std::shared_ptr<const exchange::OfferBundle>> pending_offers;
 
 	int64_t time_offset = 0;		// [sec]
 	int64_t height_offset = 0;

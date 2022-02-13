@@ -12,12 +12,20 @@
 #include <mmx/exchange/Server_cancel_return.hxx>
 #include <mmx/exchange/Server_execute.hxx>
 #include <mmx/exchange/Server_execute_return.hxx>
+#include <mmx/exchange/Server_get_history.hxx>
+#include <mmx/exchange/Server_get_history_return.hxx>
+#include <mmx/exchange/Server_get_min_trade.hxx>
+#include <mmx/exchange/Server_get_min_trade_return.hxx>
 #include <mmx/exchange/Server_get_orders.hxx>
 #include <mmx/exchange/Server_get_orders_return.hxx>
 #include <mmx/exchange/Server_get_price.hxx>
 #include <mmx/exchange/Server_get_price_return.hxx>
+#include <mmx/exchange/Server_get_trade_pairs.hxx>
+#include <mmx/exchange/Server_get_trade_pairs_return.hxx>
 #include <mmx/exchange/Server_match.hxx>
 #include <mmx/exchange/Server_match_return.hxx>
+#include <mmx/exchange/Server_ping.hxx>
+#include <mmx/exchange/Server_ping_return.hxx>
 #include <mmx/exchange/Server_place.hxx>
 #include <mmx/exchange/Server_place_return.hxx>
 #include <mmx/exchange/Server_reject.hxx>
@@ -26,6 +34,7 @@
 #include <mmx/exchange/limit_order_t.hxx>
 #include <mmx/exchange/matched_order_t.hxx>
 #include <mmx/exchange/order_t.hxx>
+#include <mmx/exchange/trade_entry_t.hxx>
 #include <mmx/exchange/trade_order_t.hxx>
 #include <mmx/exchange/trade_pair_t.hxx>
 #include <mmx/hash_t.hpp>
@@ -188,9 +197,8 @@ void ServerClient::execute_async(std::shared_ptr<const ::mmx::Transaction> tx) {
 	vnx_request(_method, true);
 }
 
-::mmx::exchange::matched_order_t ServerClient::match(const ::mmx::exchange::trade_pair_t& pair, const ::mmx::exchange::trade_order_t& order) {
+::mmx::exchange::matched_order_t ServerClient::match(const ::mmx::exchange::trade_order_t& order) {
 	auto _method = ::mmx::exchange::Server_match::create();
-	_method->pair = pair;
 	_method->order = order;
 	auto _return_value = vnx_request(_method, false);
 	if(auto _result = std::dynamic_pointer_cast<const ::mmx::exchange::Server_match_return>(_return_value)) {
@@ -202,14 +210,41 @@ void ServerClient::execute_async(std::shared_ptr<const ::mmx::Transaction> tx) {
 	}
 }
 
-std::vector<::mmx::exchange::order_t> ServerClient::get_orders(const ::mmx::exchange::trade_pair_t& pair) {
+std::vector<::mmx::exchange::trade_pair_t> ServerClient::get_trade_pairs() {
+	auto _method = ::mmx::exchange::Server_get_trade_pairs::create();
+	auto _return_value = vnx_request(_method, false);
+	if(auto _result = std::dynamic_pointer_cast<const ::mmx::exchange::Server_get_trade_pairs_return>(_return_value)) {
+		return _result->_ret_0;
+	} else if(_return_value && !_return_value->is_void()) {
+		return _return_value->get_field_by_index(0).to<std::vector<::mmx::exchange::trade_pair_t>>();
+	} else {
+		throw std::logic_error("ServerClient: invalid return value");
+	}
+}
+
+std::vector<::mmx::exchange::order_t> ServerClient::get_orders(const ::mmx::exchange::trade_pair_t& pair, const int32_t& limit) {
 	auto _method = ::mmx::exchange::Server_get_orders::create();
 	_method->pair = pair;
+	_method->limit = limit;
 	auto _return_value = vnx_request(_method, false);
 	if(auto _result = std::dynamic_pointer_cast<const ::mmx::exchange::Server_get_orders_return>(_return_value)) {
 		return _result->_ret_0;
 	} else if(_return_value && !_return_value->is_void()) {
 		return _return_value->get_field_by_index(0).to<std::vector<::mmx::exchange::order_t>>();
+	} else {
+		throw std::logic_error("ServerClient: invalid return value");
+	}
+}
+
+std::vector<::mmx::exchange::trade_entry_t> ServerClient::get_history(const ::mmx::exchange::trade_pair_t& pair, const int32_t& limit) {
+	auto _method = ::mmx::exchange::Server_get_history::create();
+	_method->pair = pair;
+	_method->limit = limit;
+	auto _return_value = vnx_request(_method, false);
+	if(auto _result = std::dynamic_pointer_cast<const ::mmx::exchange::Server_get_history_return>(_return_value)) {
+		return _result->_ret_0;
+	} else if(_return_value && !_return_value->is_void()) {
+		return _return_value->get_field_by_index(0).to<std::vector<::mmx::exchange::trade_entry_t>>();
 	} else {
 		throw std::logic_error("ServerClient: invalid return value");
 	}
@@ -221,6 +256,19 @@ std::vector<::mmx::exchange::order_t> ServerClient::get_orders(const ::mmx::exch
 	_method->have = have;
 	auto _return_value = vnx_request(_method, false);
 	if(auto _result = std::dynamic_pointer_cast<const ::mmx::exchange::Server_get_price_return>(_return_value)) {
+		return _result->_ret_0;
+	} else if(_return_value && !_return_value->is_void()) {
+		return _return_value->get_field_by_index(0).to<::mmx::ulong_fraction_t>();
+	} else {
+		throw std::logic_error("ServerClient: invalid return value");
+	}
+}
+
+::mmx::ulong_fraction_t ServerClient::get_min_trade(const ::mmx::exchange::trade_pair_t& pair) {
+	auto _method = ::mmx::exchange::Server_get_min_trade::create();
+	_method->pair = pair;
+	auto _return_value = vnx_request(_method, false);
+	if(auto _result = std::dynamic_pointer_cast<const ::mmx::exchange::Server_get_min_trade_return>(_return_value)) {
 		return _result->_ret_0;
 	} else if(_return_value && !_return_value->is_void()) {
 		return _return_value->get_field_by_index(0).to<::mmx::ulong_fraction_t>();
@@ -283,6 +331,18 @@ void ServerClient::approve_async(const uint64_t& client, std::shared_ptr<const :
 	auto _method = ::mmx::exchange::Server_approve::create();
 	_method->client = client;
 	_method->tx = tx;
+	vnx_request(_method, true);
+}
+
+void ServerClient::ping(const uint64_t& client) {
+	auto _method = ::mmx::exchange::Server_ping::create();
+	_method->client = client;
+	vnx_request(_method, false);
+}
+
+void ServerClient::ping_async(const uint64_t& client) {
+	auto _method = ::mmx::exchange::Server_ping::create();
+	_method->client = client;
 	vnx_request(_method, true);
 }
 

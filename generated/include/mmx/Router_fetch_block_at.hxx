@@ -13,8 +13,8 @@ namespace mmx {
 class Router_fetch_block_at : public ::vnx::Value {
 public:
 	
-	std::string address;
 	uint32_t height = 0;
+	std::string address;
 	
 	typedef ::vnx::Value Super;
 	
@@ -59,8 +59,8 @@ public:
 template<typename T>
 void Router_fetch_block_at::accept_generic(T& _visitor) const {
 	_visitor.template type_begin<Router_fetch_block_at>(2);
-	_visitor.type_field("address", 0); _visitor.accept(address);
-	_visitor.type_field("height", 1); _visitor.accept(height);
+	_visitor.type_field("height", 0); _visitor.accept(height);
+	_visitor.type_field("address", 1); _visitor.accept(address);
 	_visitor.template type_end<Router_fetch_block_at>(2);
 }
 

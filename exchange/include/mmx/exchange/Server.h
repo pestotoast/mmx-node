@@ -18,6 +18,7 @@
 #include <mmx/utils.h>
 
 #include <vnx/GenericAsyncClient.h>
+#include <vnx/rocksdb/multi_table.h>
 
 
 namespace mmx {
@@ -52,6 +53,8 @@ protected:
 
 	void main() override;
 
+	void ping(const uint64_t& client) const override;
+
 	void cancel(const uint64_t& client, const std::vector<txio_key_t>& orders) override;
 
 	void reject(const uint64_t& client, const hash_t& txid) override;
@@ -62,11 +65,17 @@ protected:
 
 	void execute_async(std::shared_ptr<const Transaction> tx, const vnx::request_id_t& request_id) override;
 
-	void match_async(const trade_pair_t& pair, const trade_order_t& order, const vnx::request_id_t& request_id) const override;
+	void match_async(const trade_order_t& order, const vnx::request_id_t& request_id) const override;
 
-	std::vector<order_t> get_orders(const trade_pair_t& pair) const override;
+	std::vector<trade_pair_t> get_trade_pairs() const override;
+
+	std::vector<order_t> get_orders(const trade_pair_t& pair, const int32_t& limit) const override;
+
+	std::vector<trade_entry_t> get_history(const trade_pair_t& pair, const int32_t& limit) const override;
 
 	ulong_fraction_t get_price(const addr_t& want, const amount_t& have) const override;
+
+	ulong_fraction_t get_min_trade(const trade_pair_t& pair) const override;
 
 	void handle(std::shared_ptr<const Block> block) override;
 
@@ -76,6 +85,8 @@ private:
 	bool is_open(const txio_key_t& bid_key) const;
 
 	void finish_trade(std::shared_ptr<trade_job_t> job);
+
+	void cancel_trade(std::shared_ptr<trade_job_t> job);
 
 	void cancel_order(const trade_pair_t& pair, const txio_key_t& key);
 
@@ -112,14 +123,17 @@ private:
 	std::shared_ptr<vnx::GenericAsyncClient> server;
 	std::shared_ptr<const ChainParams> params;
 
-	mutable std::unordered_map<addr_t, uint64_t> addr_map;						// [addr => client]
 	mutable std::unordered_map<txio_key_t, utxo_t> utxo_map;
+	mutable std::unordered_map<txio_key_t, uint64_t> owner_map;					// [addr => client]
+
 	std::unordered_map<txio_key_t, hash_t> lock_map;							// [key => txid]
 
 	mutable std::map<trade_pair_t, std::shared_ptr<order_book_t>> trade_map;
 
+	vnx::rocksdb::multi_table<trade_pair_t, trade_entry_t, uint64_t> trade_history;
+
 	std::unordered_map<uint64_t, std::shared_ptr<peer_t>> peer_map;
-	std::unordered_map<hash_t, std::shared_ptr<trade_job_t>> pending;
+	std::unordered_map<hash_t, std::shared_ptr<trade_job_t>> pending_trades;
 
 };
 

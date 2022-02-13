@@ -19,6 +19,7 @@ public:
 	::mmx::exchange::trade_pair_t pair;
 	uint64_t bid = 0;
 	uint64_t ask = 0;
+	uint32_t num_chunks = 1;
 	
 	typedef ::vnx::Value Super;
 	
@@ -62,12 +63,13 @@ public:
 
 template<typename T>
 void Client_make_offer::accept_generic(T& _visitor) const {
-	_visitor.template type_begin<Client_make_offer>(4);
+	_visitor.template type_begin<Client_make_offer>(5);
 	_visitor.type_field("wallet", 0); _visitor.accept(wallet);
 	_visitor.type_field("pair", 1); _visitor.accept(pair);
 	_visitor.type_field("bid", 2); _visitor.accept(bid);
 	_visitor.type_field("ask", 3); _visitor.accept(ask);
-	_visitor.template type_end<Client_make_offer>(4);
+	_visitor.type_field("num_chunks", 4); _visitor.accept(num_chunks);
+	_visitor.template type_end<Client_make_offer>(5);
 }
 
 

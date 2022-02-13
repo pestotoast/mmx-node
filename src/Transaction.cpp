@@ -20,6 +20,12 @@ uint64_t TransactionBase::calc_cost(std::shared_ptr<const ChainParams> params) c
 	return 0;
 }
 
+std::shared_ptr<const TransactionBase> TransactionBase::create_ex(const hash_t& id) {
+	auto tx = TransactionBase::create();
+	tx->id = id;
+	return tx;
+}
+
 void Transaction::finalize() {
 	id = calc_hash();
 }
@@ -53,6 +59,28 @@ hash_t Transaction::calc_hash() const
 	out.flush();
 
 	return hash_t(buffer);
+}
+
+void Transaction::add_output(const addr_t& currency, const addr_t& address, const uint64_t& amount, const uint32_t& split)
+{
+	if(split == 0) {
+		throw std::logic_error("split == 0");
+	}
+	if(split > 1000000) {
+		throw std::logic_error("split > 1000000");
+	}
+	if(amount < split) {
+		throw std::logic_error("amount < split");
+	}
+	uint64_t left = amount;
+	for(uint32_t i = 0; i < split; ++i) {
+		tx_out_t out;
+		out.address = address;
+		out.contract = currency;
+		out.amount = i + 1 < split ? amount / split : left;
+		left -= out.amount;
+		outputs.push_back(out);
+	}
 }
 
 std::shared_ptr<const Solution> Transaction::get_solution(const uint32_t& index) const
@@ -90,15 +118,16 @@ uint64_t Transaction::calc_cost(std::shared_ptr<const ChainParams> params) const
 		throw std::logic_error("!params");
 	}
 	uint64_t fee = (inputs.size() + outputs.size()) * params->min_txfee_io;
-
-	std::unordered_map<uint32_t, uint32_t> sol_count;
-	for(const auto& in : inputs) {
-		sol_count[in.solution]++;
-	}
-	for(const auto& entry : sol_count) {
-		if(auto sol = get_solution(entry.first)) {
-			if(sol->is_contract) {
-				// TODO: fee += entry.second * params->min_txfee_exec;
+	{
+		std::unordered_map<uint32_t, uint32_t> exec_count;
+		for(const auto& in : inputs) {
+			exec_count[in.solution]++;
+		}
+		for(const auto& entry : exec_count) {
+			if(auto sol = get_solution(entry.first)) {
+				if(sol->is_contract) {
+					// TODO: fee += entry.second * params->min_txfee_exec;
+				}
 			}
 		}
 	}

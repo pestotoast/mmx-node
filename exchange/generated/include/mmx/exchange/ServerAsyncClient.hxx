@@ -12,6 +12,7 @@
 #include <mmx/exchange/limit_order_t.hxx>
 #include <mmx/exchange/matched_order_t.hxx>
 #include <mmx/exchange/order_t.hxx>
+#include <mmx/exchange/trade_entry_t.hxx>
 #include <mmx/exchange/trade_order_t.hxx>
 #include <mmx/exchange/trade_pair_t.hxx>
 #include <mmx/hash_t.hpp>
@@ -70,15 +71,27 @@ public:
 			const std::function<void()>& _callback = std::function<void()>(),
 			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
 	
-	uint64_t match(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const ::mmx::exchange::trade_order_t& order = ::mmx::exchange::trade_order_t(), 
+	uint64_t match(const ::mmx::exchange::trade_order_t& order = ::mmx::exchange::trade_order_t(), 
 			const std::function<void(const ::mmx::exchange::matched_order_t&)>& _callback = std::function<void(const ::mmx::exchange::matched_order_t&)>(),
 			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
 	
-	uint64_t get_orders(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), 
+	uint64_t get_trade_pairs(
+			const std::function<void(const std::vector<::mmx::exchange::trade_pair_t>&)>& _callback = std::function<void(const std::vector<::mmx::exchange::trade_pair_t>&)>(),
+			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
+	
+	uint64_t get_orders(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const int32_t& limit = -1, 
 			const std::function<void(const std::vector<::mmx::exchange::order_t>&)>& _callback = std::function<void(const std::vector<::mmx::exchange::order_t>&)>(),
 			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
 	
+	uint64_t get_history(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const int32_t& limit = -1, 
+			const std::function<void(const std::vector<::mmx::exchange::trade_entry_t>&)>& _callback = std::function<void(const std::vector<::mmx::exchange::trade_entry_t>&)>(),
+			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
+	
 	uint64_t get_price(const ::mmx::addr_t& want = ::mmx::addr_t(), const ::mmx::exchange::amount_t& have = ::mmx::exchange::amount_t(), 
+			const std::function<void(const ::mmx::ulong_fraction_t&)>& _callback = std::function<void(const ::mmx::ulong_fraction_t&)>(),
+			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
+	
+	uint64_t get_min_trade(const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), 
 			const std::function<void(const ::mmx::ulong_fraction_t&)>& _callback = std::function<void(const ::mmx::ulong_fraction_t&)>(),
 			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
 	
@@ -95,6 +108,10 @@ public:
 			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
 	
 	uint64_t approve(const uint64_t& client = 0, std::shared_ptr<const ::mmx::Transaction> tx = nullptr, 
+			const std::function<void()>& _callback = std::function<void()>(),
+			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
+	
+	uint64_t ping(const uint64_t& client = 0, 
 			const std::function<void()>& _callback = std::function<void()>(),
 			const std::function<void(const vnx::exception&)>& _error_callback = std::function<void(const vnx::exception&)>());
 	
@@ -115,12 +132,16 @@ private:
 	std::unordered_map<uint64_t, std::pair<std::function<void(const vnx::bool_t&)>, std::function<void(const vnx::exception&)>>> vnx_queue_vnx_self_test;
 	std::unordered_map<uint64_t, std::pair<std::function<void()>, std::function<void(const vnx::exception&)>>> vnx_queue_execute;
 	std::unordered_map<uint64_t, std::pair<std::function<void(const ::mmx::exchange::matched_order_t&)>, std::function<void(const vnx::exception&)>>> vnx_queue_match;
+	std::unordered_map<uint64_t, std::pair<std::function<void(const std::vector<::mmx::exchange::trade_pair_t>&)>, std::function<void(const vnx::exception&)>>> vnx_queue_get_trade_pairs;
 	std::unordered_map<uint64_t, std::pair<std::function<void(const std::vector<::mmx::exchange::order_t>&)>, std::function<void(const vnx::exception&)>>> vnx_queue_get_orders;
+	std::unordered_map<uint64_t, std::pair<std::function<void(const std::vector<::mmx::exchange::trade_entry_t>&)>, std::function<void(const vnx::exception&)>>> vnx_queue_get_history;
 	std::unordered_map<uint64_t, std::pair<std::function<void(const ::mmx::ulong_fraction_t&)>, std::function<void(const vnx::exception&)>>> vnx_queue_get_price;
+	std::unordered_map<uint64_t, std::pair<std::function<void(const ::mmx::ulong_fraction_t&)>, std::function<void(const vnx::exception&)>>> vnx_queue_get_min_trade;
 	std::unordered_map<uint64_t, std::pair<std::function<void(const std::vector<::mmx::exchange::order_t>&)>, std::function<void(const vnx::exception&)>>> vnx_queue_place;
 	std::unordered_map<uint64_t, std::pair<std::function<void()>, std::function<void(const vnx::exception&)>>> vnx_queue_cancel;
 	std::unordered_map<uint64_t, std::pair<std::function<void()>, std::function<void(const vnx::exception&)>>> vnx_queue_reject;
 	std::unordered_map<uint64_t, std::pair<std::function<void()>, std::function<void(const vnx::exception&)>>> vnx_queue_approve;
+	std::unordered_map<uint64_t, std::pair<std::function<void()>, std::function<void(const vnx::exception&)>>> vnx_queue_ping;
 	
 };
 

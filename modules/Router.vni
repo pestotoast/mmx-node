@@ -14,10 +14,12 @@ module Router extends vnx.addons.MsgServer {
 	vnx.TopicPtr output_transactions = "network.transactions";
 	
 	int max_queue_ms = 1000;				// [ms]
+	int send_interval_ms = 20;				// [ms]
 	int query_interval_ms = 10000;			// [ms]
 	int update_interval_ms = 1000;			// [ms]
 	int connect_interval_ms = 10000;		// [ms]
 	int fetch_timeout_ms = 10000;			// for fetching data from peers [ms]
+	int relay_target_ms = 5000;				// [ms]
 	
 	uint sync_loss_delay = 60;				// when to re-sync [sec]
 	uint discover_interval = 60;			// how often to search for new peers [sec]
@@ -28,12 +30,13 @@ module Router extends vnx.addons.MsgServer {
 	uint min_sync_peers = 2;				// minimum peers needed for syncing
 	uint max_sync_peers = 4;				// maximum peers to check for different blocks
 	
+	uint max_sent_cache = 20000;
 	uint max_hash_cache = 100000;
 	
 	uint tx_credits = 10000;				// node reward per update
 	uint vdf_credits = 1024;				// node reward for valid vdf
 	uint block_credits = 256;				// node reward for valid block
-	uint proof_credits = 10;				// farmer reward for valid proof
+	uint proof_credits = 10;				// node + farmer reward for valid proof
 	
 	uint vdf_relay_cost = 768;				// node cost
 	uint proof_relay_cost = 2;				// farmer cost + node reward
@@ -42,7 +45,7 @@ module Router extends vnx.addons.MsgServer {
 	uint max_node_credits = 1024;
 	uint max_farmer_credits = 32;
 	
-	uint node_version = 101;
+	uint node_version = 102;
 	node_type_e mode = FULL_NODE;
 	
 	bool do_relay = true;
@@ -74,7 +77,9 @@ module Router extends vnx.addons.MsgServer {
 	
 	vector<Block*> get_blocks_at(uint height) const async;
 	
-	Block* fetch_block_at(string address, uint height) const async;
+	Block* fetch_block(hash_t hash, optional<string> address) const async;
+	
+	Block* fetch_block_at(uint height, string address) const async;
 	
 	
 	void handle(Block sample);

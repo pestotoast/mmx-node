@@ -10,14 +10,22 @@
 #include <mmx/Transaction.hxx>
 #include <mmx/Wallet_add_account.hxx>
 #include <mmx/Wallet_add_account_return.hxx>
+#include <mmx/Wallet_complete.hxx>
+#include <mmx/Wallet_complete_return.hxx>
+#include <mmx/Wallet_create_account.hxx>
+#include <mmx/Wallet_create_account_return.hxx>
+#include <mmx/Wallet_create_wallet.hxx>
+#include <mmx/Wallet_create_wallet_return.hxx>
 #include <mmx/Wallet_deploy.hxx>
 #include <mmx/Wallet_deploy_return.hxx>
 #include <mmx/Wallet_gather_utxos_for.hxx>
 #include <mmx/Wallet_gather_utxos_for_return.hxx>
-#include <mmx/Wallet_get_accounts.hxx>
-#include <mmx/Wallet_get_accounts_return.hxx>
+#include <mmx/Wallet_get_account.hxx>
+#include <mmx/Wallet_get_account_return.hxx>
 #include <mmx/Wallet_get_address.hxx>
 #include <mmx/Wallet_get_address_return.hxx>
+#include <mmx/Wallet_get_all_accounts.hxx>
+#include <mmx/Wallet_get_all_accounts_return.hxx>
 #include <mmx/Wallet_get_all_addresses.hxx>
 #include <mmx/Wallet_get_all_addresses_return.hxx>
 #include <mmx/Wallet_get_all_farmer_keys.hxx>
@@ -34,8 +42,6 @@
 #include <mmx/Wallet_get_history_return.hxx>
 #include <mmx/Wallet_get_master_seed.hxx>
 #include <mmx/Wallet_get_master_seed_return.hxx>
-#include <mmx/Wallet_get_reserved_balances.hxx>
-#include <mmx/Wallet_get_reserved_balances_return.hxx>
 #include <mmx/Wallet_get_stxo_list.hxx>
 #include <mmx/Wallet_get_stxo_list_return.hxx>
 #include <mmx/Wallet_get_stxo_list_for.hxx>
@@ -58,12 +64,17 @@
 #include <mmx/Wallet_send_return.hxx>
 #include <mmx/Wallet_send_from.hxx>
 #include <mmx/Wallet_send_from_return.hxx>
+#include <mmx/Wallet_send_off.hxx>
+#include <mmx/Wallet_send_off_return.hxx>
 #include <mmx/Wallet_sign_msg.hxx>
 #include <mmx/Wallet_sign_msg_return.hxx>
 #include <mmx/Wallet_sign_off.hxx>
 #include <mmx/Wallet_sign_off_return.hxx>
+#include <mmx/Wallet_split.hxx>
+#include <mmx/Wallet_split_return.hxx>
 #include <mmx/account_t.hxx>
 #include <mmx/addr_t.hpp>
+#include <mmx/balance_t.hxx>
 #include <mmx/hash_t.hpp>
 #include <mmx/spend_options_t.hxx>
 #include <mmx/stxo_entry_t.hxx>
@@ -105,13 +116,14 @@ namespace mmx {
 
 
 const vnx::Hash64 WalletBase::VNX_TYPE_HASH(0x62207fd96d3aead7ull);
-const vnx::Hash64 WalletBase::VNX_CODE_HASH(0xd3041d75a9807c4cull);
+const vnx::Hash64 WalletBase::VNX_CODE_HASH(0xf6bff7d15073ee34ull);
 
 WalletBase::WalletBase(const std::string& _vnx_name)
 	:	Module::Module(_vnx_name)
 {
 	vnx::read_config(vnx_name + ".key_files", key_files);
 	vnx::read_config(vnx_name + ".accounts", accounts);
+	vnx::read_config(vnx_name + ".config_path", config_path);
 	vnx::read_config(vnx_name + ".storage_path", storage_path);
 	vnx::read_config(vnx_name + ".node_server", node_server);
 	vnx::read_config(vnx_name + ".max_accounts", max_accounts);
@@ -138,13 +150,14 @@ void WalletBase::accept(vnx::Visitor& _visitor) const {
 	_visitor.type_begin(*_type_code);
 	_visitor.type_field(_type_code->fields[0], 0); vnx::accept(_visitor, key_files);
 	_visitor.type_field(_type_code->fields[1], 1); vnx::accept(_visitor, accounts);
-	_visitor.type_field(_type_code->fields[2], 2); vnx::accept(_visitor, storage_path);
-	_visitor.type_field(_type_code->fields[3], 3); vnx::accept(_visitor, node_server);
-	_visitor.type_field(_type_code->fields[4], 4); vnx::accept(_visitor, max_accounts);
-	_visitor.type_field(_type_code->fields[5], 5); vnx::accept(_visitor, max_key_files);
-	_visitor.type_field(_type_code->fields[6], 6); vnx::accept(_visitor, num_addresses);
-	_visitor.type_field(_type_code->fields[7], 7); vnx::accept(_visitor, utxo_timeout_ms);
-	_visitor.type_field(_type_code->fields[8], 8); vnx::accept(_visitor, enable_bls);
+	_visitor.type_field(_type_code->fields[2], 2); vnx::accept(_visitor, config_path);
+	_visitor.type_field(_type_code->fields[3], 3); vnx::accept(_visitor, storage_path);
+	_visitor.type_field(_type_code->fields[4], 4); vnx::accept(_visitor, node_server);
+	_visitor.type_field(_type_code->fields[5], 5); vnx::accept(_visitor, max_accounts);
+	_visitor.type_field(_type_code->fields[6], 6); vnx::accept(_visitor, max_key_files);
+	_visitor.type_field(_type_code->fields[7], 7); vnx::accept(_visitor, num_addresses);
+	_visitor.type_field(_type_code->fields[8], 8); vnx::accept(_visitor, utxo_timeout_ms);
+	_visitor.type_field(_type_code->fields[9], 9); vnx::accept(_visitor, enable_bls);
 	_visitor.type_end(*_type_code);
 }
 
@@ -152,6 +165,7 @@ void WalletBase::write(std::ostream& _out) const {
 	_out << "{";
 	_out << "\"key_files\": "; vnx::write(_out, key_files);
 	_out << ", \"accounts\": "; vnx::write(_out, accounts);
+	_out << ", \"config_path\": "; vnx::write(_out, config_path);
 	_out << ", \"storage_path\": "; vnx::write(_out, storage_path);
 	_out << ", \"node_server\": "; vnx::write(_out, node_server);
 	_out << ", \"max_accounts\": "; vnx::write(_out, max_accounts);
@@ -173,6 +187,7 @@ vnx::Object WalletBase::to_object() const {
 	_object["__type"] = "mmx.Wallet";
 	_object["key_files"] = key_files;
 	_object["accounts"] = accounts;
+	_object["config_path"] = config_path;
 	_object["storage_path"] = storage_path;
 	_object["node_server"] = node_server;
 	_object["max_accounts"] = max_accounts;
@@ -187,6 +202,8 @@ void WalletBase::from_object(const vnx::Object& _object) {
 	for(const auto& _entry : _object.field) {
 		if(_entry.first == "accounts") {
 			_entry.second.to(accounts);
+		} else if(_entry.first == "config_path") {
+			_entry.second.to(config_path);
 		} else if(_entry.first == "enable_bls") {
 			_entry.second.to(enable_bls);
 		} else if(_entry.first == "key_files") {
@@ -213,6 +230,9 @@ vnx::Variant WalletBase::get_field(const std::string& _name) const {
 	}
 	if(_name == "accounts") {
 		return vnx::Variant(accounts);
+	}
+	if(_name == "config_path") {
+		return vnx::Variant(config_path);
 	}
 	if(_name == "storage_path") {
 		return vnx::Variant(storage_path);
@@ -243,6 +263,8 @@ void WalletBase::set_field(const std::string& _name, const vnx::Variant& _value)
 		_value.to(key_files);
 	} else if(_name == "accounts") {
 		_value.to(accounts);
+	} else if(_name == "config_path") {
+		_value.to(config_path);
 	} else if(_name == "storage_path") {
 		_value.to(storage_path);
 	} else if(_name == "node_server") {
@@ -284,12 +306,12 @@ std::shared_ptr<vnx::TypeCode> WalletBase::static_create_type_code() {
 	auto type_code = std::make_shared<vnx::TypeCode>();
 	type_code->name = "mmx.Wallet";
 	type_code->type_hash = vnx::Hash64(0x62207fd96d3aead7ull);
-	type_code->code_hash = vnx::Hash64(0xd3041d75a9807c4cull);
+	type_code->code_hash = vnx::Hash64(0xf6bff7d15073ee34ull);
 	type_code->is_native = true;
 	type_code->native_size = sizeof(::mmx::WalletBase);
 	type_code->depends.resize(1);
 	type_code->depends[0] = ::mmx::account_t::static_get_type_code();
-	type_code->methods.resize(38);
+	type_code->methods.resize(43);
 	type_code->methods[0] = ::vnx::ModuleInterface_vnx_get_config_object::static_get_type_code();
 	type_code->methods[1] = ::vnx::ModuleInterface_vnx_get_config::static_get_type_code();
 	type_code->methods[2] = ::vnx::ModuleInterface_vnx_set_config_object::static_get_type_code();
@@ -303,32 +325,37 @@ std::shared_ptr<vnx::TypeCode> WalletBase::static_create_type_code() {
 	type_code->methods[10] = ::mmx::Wallet_send_from::static_get_type_code();
 	type_code->methods[11] = ::mmx::Wallet_mint::static_get_type_code();
 	type_code->methods[12] = ::mmx::Wallet_deploy::static_get_type_code();
-	type_code->methods[13] = ::mmx::Wallet_sign_off::static_get_type_code();
-	type_code->methods[14] = ::mmx::Wallet_sign_msg::static_get_type_code();
-	type_code->methods[15] = ::mmx::Wallet_mark_spent::static_get_type_code();
-	type_code->methods[16] = ::mmx::Wallet_reserve::static_get_type_code();
-	type_code->methods[17] = ::mmx::Wallet_release::static_get_type_code();
-	type_code->methods[18] = ::mmx::Wallet_release_all::static_get_type_code();
-	type_code->methods[19] = ::mmx::Wallet_get_utxo_list::static_get_type_code();
-	type_code->methods[20] = ::mmx::Wallet_get_utxo_list_for::static_get_type_code();
-	type_code->methods[21] = ::mmx::Wallet_get_stxo_list::static_get_type_code();
-	type_code->methods[22] = ::mmx::Wallet_get_stxo_list_for::static_get_type_code();
-	type_code->methods[23] = ::mmx::Wallet_gather_utxos_for::static_get_type_code();
-	type_code->methods[24] = ::mmx::Wallet_get_history::static_get_type_code();
-	type_code->methods[25] = ::mmx::Wallet_get_balance::static_get_type_code();
-	type_code->methods[26] = ::mmx::Wallet_get_balances::static_get_type_code();
-	type_code->methods[27] = ::mmx::Wallet_get_reserved_balances::static_get_type_code();
-	type_code->methods[28] = ::mmx::Wallet_get_contracts::static_get_type_code();
-	type_code->methods[29] = ::mmx::Wallet_get_address::static_get_type_code();
-	type_code->methods[30] = ::mmx::Wallet_get_all_addresses::static_get_type_code();
-	type_code->methods[31] = ::mmx::Wallet_get_accounts::static_get_type_code();
-	type_code->methods[32] = ::mmx::Wallet_add_account::static_get_type_code();
-	type_code->methods[33] = ::mmx::Wallet_get_master_seed::static_get_type_code();
-	type_code->methods[34] = ::mmx::Wallet_get_farmer_keys::static_get_type_code();
-	type_code->methods[35] = ::mmx::Wallet_get_all_farmer_keys::static_get_type_code();
-	type_code->methods[36] = ::vnx::addons::HttpComponent_http_request::static_get_type_code();
-	type_code->methods[37] = ::vnx::addons::HttpComponent_http_request_chunk::static_get_type_code();
-	type_code->fields.resize(9);
+	type_code->methods[13] = ::mmx::Wallet_split::static_get_type_code();
+	type_code->methods[14] = ::mmx::Wallet_complete::static_get_type_code();
+	type_code->methods[15] = ::mmx::Wallet_sign_off::static_get_type_code();
+	type_code->methods[16] = ::mmx::Wallet_sign_msg::static_get_type_code();
+	type_code->methods[17] = ::mmx::Wallet_send_off::static_get_type_code();
+	type_code->methods[18] = ::mmx::Wallet_mark_spent::static_get_type_code();
+	type_code->methods[19] = ::mmx::Wallet_reserve::static_get_type_code();
+	type_code->methods[20] = ::mmx::Wallet_release::static_get_type_code();
+	type_code->methods[21] = ::mmx::Wallet_release_all::static_get_type_code();
+	type_code->methods[22] = ::mmx::Wallet_get_utxo_list::static_get_type_code();
+	type_code->methods[23] = ::mmx::Wallet_get_utxo_list_for::static_get_type_code();
+	type_code->methods[24] = ::mmx::Wallet_get_stxo_list::static_get_type_code();
+	type_code->methods[25] = ::mmx::Wallet_get_stxo_list_for::static_get_type_code();
+	type_code->methods[26] = ::mmx::Wallet_gather_utxos_for::static_get_type_code();
+	type_code->methods[27] = ::mmx::Wallet_get_history::static_get_type_code();
+	type_code->methods[28] = ::mmx::Wallet_get_balance::static_get_type_code();
+	type_code->methods[29] = ::mmx::Wallet_get_balances::static_get_type_code();
+	type_code->methods[30] = ::mmx::Wallet_get_contracts::static_get_type_code();
+	type_code->methods[31] = ::mmx::Wallet_get_address::static_get_type_code();
+	type_code->methods[32] = ::mmx::Wallet_get_all_addresses::static_get_type_code();
+	type_code->methods[33] = ::mmx::Wallet_get_account::static_get_type_code();
+	type_code->methods[34] = ::mmx::Wallet_get_all_accounts::static_get_type_code();
+	type_code->methods[35] = ::mmx::Wallet_add_account::static_get_type_code();
+	type_code->methods[36] = ::mmx::Wallet_create_account::static_get_type_code();
+	type_code->methods[37] = ::mmx::Wallet_create_wallet::static_get_type_code();
+	type_code->methods[38] = ::mmx::Wallet_get_master_seed::static_get_type_code();
+	type_code->methods[39] = ::mmx::Wallet_get_farmer_keys::static_get_type_code();
+	type_code->methods[40] = ::mmx::Wallet_get_all_farmer_keys::static_get_type_code();
+	type_code->methods[41] = ::vnx::addons::HttpComponent_http_request::static_get_type_code();
+	type_code->methods[42] = ::vnx::addons::HttpComponent_http_request_chunk::static_get_type_code();
+	type_code->fields.resize(10);
 	{
 		auto& field = type_code->fields[0];
 		field.is_extended = true;
@@ -344,46 +371,52 @@ std::shared_ptr<vnx::TypeCode> WalletBase::static_create_type_code() {
 	{
 		auto& field = type_code->fields[2];
 		field.is_extended = true;
-		field.name = "storage_path";
+		field.name = "config_path";
 		field.code = {32};
 	}
 	{
 		auto& field = type_code->fields[3];
+		field.is_extended = true;
+		field.name = "storage_path";
+		field.code = {32};
+	}
+	{
+		auto& field = type_code->fields[4];
 		field.is_extended = true;
 		field.name = "node_server";
 		field.value = vnx::to_string("Node");
 		field.code = {32};
 	}
 	{
-		auto& field = type_code->fields[4];
+		auto& field = type_code->fields[5];
 		field.data_size = 4;
 		field.name = "max_accounts";
 		field.value = vnx::to_string(1000);
 		field.code = {3};
 	}
 	{
-		auto& field = type_code->fields[5];
+		auto& field = type_code->fields[6];
 		field.data_size = 4;
 		field.name = "max_key_files";
 		field.value = vnx::to_string(100);
 		field.code = {3};
 	}
 	{
-		auto& field = type_code->fields[6];
+		auto& field = type_code->fields[7];
 		field.data_size = 4;
 		field.name = "num_addresses";
 		field.value = vnx::to_string(100);
 		field.code = {3};
 	}
 	{
-		auto& field = type_code->fields[7];
+		auto& field = type_code->fields[8];
 		field.data_size = 4;
 		field.name = "utxo_timeout_ms";
 		field.value = vnx::to_string(1000);
 		field.code = {7};
 	}
 	{
-		auto& field = type_code->fields[8];
+		auto& field = type_code->fields[9];
 		field.data_size = 1;
 		field.name = "enable_bls";
 		field.value = vnx::to_string(true);
@@ -484,6 +517,18 @@ std::shared_ptr<vnx::Value> WalletBase::vnx_call_switch(std::shared_ptr<const vn
 			_return_value->_ret_0 = deploy(_args->index, _args->contract, _args->options);
 			return _return_value;
 		}
+		case 0xbd7c4dbb51c0f7c2ull: {
+			auto _args = std::static_pointer_cast<const ::mmx::Wallet_split>(_method);
+			auto _return_value = ::mmx::Wallet_split_return::create();
+			_return_value->_ret_0 = split(_args->index, _args->max_amount, _args->currency, _args->options);
+			return _return_value;
+		}
+		case 0x20da222e7c7de702ull: {
+			auto _args = std::static_pointer_cast<const ::mmx::Wallet_complete>(_method);
+			auto _return_value = ::mmx::Wallet_complete_return::create();
+			_return_value->_ret_0 = complete(_args->index, _args->tx, _args->options);
+			return _return_value;
+		}
 		case 0x232c89cf3ed4d5b1ull: {
 			auto _args = std::static_pointer_cast<const ::mmx::Wallet_sign_off>(_method);
 			auto _return_value = ::mmx::Wallet_sign_off_return::create();
@@ -494,6 +539,12 @@ std::shared_ptr<vnx::Value> WalletBase::vnx_call_switch(std::shared_ptr<const vn
 			auto _args = std::static_pointer_cast<const ::mmx::Wallet_sign_msg>(_method);
 			auto _return_value = ::mmx::Wallet_sign_msg_return::create();
 			_return_value->_ret_0 = sign_msg(_args->index, _args->address, _args->msg);
+			return _return_value;
+		}
+		case 0x8b7bfc0751d27adbull: {
+			auto _args = std::static_pointer_cast<const ::mmx::Wallet_send_off>(_method);
+			auto _return_value = ::mmx::Wallet_send_off_return::create();
+			send_off(_args->index, _args->tx);
 			return _return_value;
 		}
 		case 0x107fed23348b3333ull: {
@@ -568,12 +619,6 @@ std::shared_ptr<vnx::Value> WalletBase::vnx_call_switch(std::shared_ptr<const vn
 			_return_value->_ret_0 = get_balances(_args->index, _args->min_confirm);
 			return _return_value;
 		}
-		case 0x1d7a6c15c0262b11ull: {
-			auto _args = std::static_pointer_cast<const ::mmx::Wallet_get_reserved_balances>(_method);
-			auto _return_value = ::mmx::Wallet_get_reserved_balances_return::create();
-			_return_value->_ret_0 = get_reserved_balances(_args->index, _args->min_confirm);
-			return _return_value;
-		}
 		case 0x9ff1932bcec18d57ull: {
 			auto _args = std::static_pointer_cast<const ::mmx::Wallet_get_contracts>(_method);
 			auto _return_value = ::mmx::Wallet_get_contracts_return::create();
@@ -592,16 +637,34 @@ std::shared_ptr<vnx::Value> WalletBase::vnx_call_switch(std::shared_ptr<const vn
 			_return_value->_ret_0 = get_all_addresses(_args->index);
 			return _return_value;
 		}
-		case 0x76e6f1f2f43168d2ull: {
-			auto _args = std::static_pointer_cast<const ::mmx::Wallet_get_accounts>(_method);
-			auto _return_value = ::mmx::Wallet_get_accounts_return::create();
-			_return_value->_ret_0 = get_accounts();
+		case 0xf9669d0d42aec09eull: {
+			auto _args = std::static_pointer_cast<const ::mmx::Wallet_get_account>(_method);
+			auto _return_value = ::mmx::Wallet_get_account_return::create();
+			_return_value->_ret_0 = get_account(_args->index);
+			return _return_value;
+		}
+		case 0xdf8bfad64085cb83ull: {
+			auto _args = std::static_pointer_cast<const ::mmx::Wallet_get_all_accounts>(_method);
+			auto _return_value = ::mmx::Wallet_get_all_accounts_return::create();
+			_return_value->_ret_0 = get_all_accounts();
 			return _return_value;
 		}
 		case 0x92d2d3518d9c33aeull: {
 			auto _args = std::static_pointer_cast<const ::mmx::Wallet_add_account>(_method);
 			auto _return_value = ::mmx::Wallet_add_account_return::create();
 			add_account(_args->index, _args->config);
+			return _return_value;
+		}
+		case 0x11cd618b00e9e56cull: {
+			auto _args = std::static_pointer_cast<const ::mmx::Wallet_create_account>(_method);
+			auto _return_value = ::mmx::Wallet_create_account_return::create();
+			create_account(_args->config);
+			return _return_value;
+		}
+		case 0xdcc08a3a1b171a19ull: {
+			auto _args = std::static_pointer_cast<const ::mmx::Wallet_create_wallet>(_method);
+			auto _return_value = ::mmx::Wallet_create_wallet_return::create();
+			create_wallet(_args->config);
 			return _return_value;
 		}
 		case 0x8fddd77ece4d295bull: {
@@ -689,19 +752,19 @@ void read(TypeInput& in, ::mmx::WalletBase& value, const TypeCode* type_code, co
 	}
 	const char* const _buf = in.read(type_code->total_field_size);
 	if(type_code->is_matched) {
-		if(const auto* const _field = type_code->field_map[4]) {
+		if(const auto* const _field = type_code->field_map[5]) {
 			vnx::read_value(_buf + _field->offset, value.max_accounts, _field->code.data());
 		}
-		if(const auto* const _field = type_code->field_map[5]) {
+		if(const auto* const _field = type_code->field_map[6]) {
 			vnx::read_value(_buf + _field->offset, value.max_key_files, _field->code.data());
 		}
-		if(const auto* const _field = type_code->field_map[6]) {
+		if(const auto* const _field = type_code->field_map[7]) {
 			vnx::read_value(_buf + _field->offset, value.num_addresses, _field->code.data());
 		}
-		if(const auto* const _field = type_code->field_map[7]) {
+		if(const auto* const _field = type_code->field_map[8]) {
 			vnx::read_value(_buf + _field->offset, value.utxo_timeout_ms, _field->code.data());
 		}
-		if(const auto* const _field = type_code->field_map[8]) {
+		if(const auto* const _field = type_code->field_map[9]) {
 			vnx::read_value(_buf + _field->offset, value.enable_bls, _field->code.data());
 		}
 	}
@@ -709,8 +772,9 @@ void read(TypeInput& in, ::mmx::WalletBase& value, const TypeCode* type_code, co
 		switch(_field->native_index) {
 			case 0: vnx::read(in, value.key_files, type_code, _field->code.data()); break;
 			case 1: vnx::read(in, value.accounts, type_code, _field->code.data()); break;
-			case 2: vnx::read(in, value.storage_path, type_code, _field->code.data()); break;
-			case 3: vnx::read(in, value.node_server, type_code, _field->code.data()); break;
+			case 2: vnx::read(in, value.config_path, type_code, _field->code.data()); break;
+			case 3: vnx::read(in, value.storage_path, type_code, _field->code.data()); break;
+			case 4: vnx::read(in, value.node_server, type_code, _field->code.data()); break;
 			default: vnx::skip(in, type_code, _field->code.data());
 		}
 	}
@@ -737,8 +801,9 @@ void write(TypeOutput& out, const ::mmx::WalletBase& value, const TypeCode* type
 	vnx::write_value(_buf + 16, value.enable_bls);
 	vnx::write(out, value.key_files, type_code, type_code->fields[0].code.data());
 	vnx::write(out, value.accounts, type_code, type_code->fields[1].code.data());
-	vnx::write(out, value.storage_path, type_code, type_code->fields[2].code.data());
-	vnx::write(out, value.node_server, type_code, type_code->fields[3].code.data());
+	vnx::write(out, value.config_path, type_code, type_code->fields[2].code.data());
+	vnx::write(out, value.storage_path, type_code, type_code->fields[3].code.data());
+	vnx::write(out, value.node_server, type_code, type_code->fields[4].code.data());
 }
 
 void read(std::istream& in, ::mmx::WalletBase& value) {

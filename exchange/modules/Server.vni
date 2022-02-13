@@ -14,18 +14,29 @@ module Server extends vnx.addons.MsgServer {
 	
 	string node_server = "Node";
 	
+	string storage_path = "exchange/server/";
+	
 	
 	@Permission(mmx.permission_e.PUBLIC)
 	void execute(Transaction* tx) async;
 	
 	@Permission(mmx.permission_e.PUBLIC)
-	matched_order_t match(trade_pair_t pair, trade_order_t order) const async;
+	matched_order_t match(trade_order_t order) const async;
 	
 	@Permission(mmx.permission_e.PUBLIC)
-	vector<order_t> get_orders(trade_pair_t pair) const;
+	vector<trade_pair_t> get_trade_pairs() const;
+	
+	@Permission(mmx.permission_e.PUBLIC)
+	vector<order_t> get_orders(trade_pair_t pair, int limit = -1) const;
+	
+	@Permission(mmx.permission_e.PUBLIC)
+	vector<trade_entry_t> get_history(trade_pair_t pair, int limit = -1) const;
 	
 	@Permission(mmx.permission_e.PUBLIC)
 	ulong_fraction_t get_price(addr_t want, amount_t have) const;
+	
+	@Permission(mmx.permission_e.PUBLIC)
+	ulong_fraction_t get_min_trade(trade_pair_t pair) const;
 	
 	vector<order_t> place(ulong client, trade_pair_t pair, limit_order_t order) const async;
 	
@@ -34,6 +45,9 @@ module Server extends vnx.addons.MsgServer {
 	void reject(ulong client, hash_t txid);
 	
 	void approve(ulong client, Transaction* tx);
+	
+	void ping(ulong client) const;
+	
 	
 	void handle(mmx.Block sample);
 	

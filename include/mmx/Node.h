@@ -132,6 +132,7 @@ private:
 		uint32_t proof_score = -1;
 		int32_t buffer_delta = 0;
 		int32_t weight_buffer = 0;
+		int32_t score_bonus = 0;
 		int64_t recv_time = 0;
 		uint128_t weight = 0;
 		uint128_t total_weight = 0;
@@ -168,6 +169,8 @@ private:
 
 	void sync_result(const uint32_t& height, const std::vector<std::shared_ptr<const Block>>& blocks);
 
+	void fetch_result(const hash_t& hash, std::shared_ptr<const Block> block);
+
 	std::shared_ptr<const BlockHeader> fork_to(const hash_t& state);
 
 	std::shared_ptr<const BlockHeader> fork_to(std::shared_ptr<fork_t> fork_head);
@@ -176,7 +179,7 @@ private:
 
 	std::vector<std::shared_ptr<fork_t>> get_fork_line(std::shared_ptr<fork_t> fork_head = nullptr) const;
 
-	void validate(std::shared_ptr<const Block> block) const;
+	std::shared_ptr<Block> validate(std::shared_ptr<const Block> block) const;
 
 	void validate(std::shared_ptr<const Transaction> tx) const;
 
@@ -246,7 +249,7 @@ private:
 
 	uint64_t calc_block_reward(std::shared_ptr<const BlockHeader> block) const;
 
-	std::shared_ptr<const Block> read_block(bool is_replay = false, int64_t* file_offset = nullptr);
+	std::shared_ptr<const Block> read_block(vnx::File& file, int64_t* file_offset = nullptr) const;
 
 	void write_block(std::shared_ptr<const Block> block);
 
@@ -263,10 +266,10 @@ private:
 	vnx::rocksdb::multi_table<addr_t, addr_t> owner_map;							// [owner => contract]
 	vnx::rocksdb::multi_table<uint32_t, hash_t> tx_log;								// [height => txid] (finalized only)
 
-	std::unordered_map<hash_t, uint32_t> tx_map;									// [txid => height] (pending only)
 	std::unordered_map<txio_key_t, utxo_t> utxo_map;								// [utxo key => utxo]
 	std::set<std::pair<addr_t, txio_key_t>> addr_map;								// [addr => utxo keys] (finalized + unspent only)
 	std::unordered_map<addr_t, std::unordered_set<txio_key_t>> taddr_map;			// [addr => utxo keys] (pending + unspent only)
+	std::unordered_map<hash_t, std::pair<std::shared_ptr<const Transaction>, uint32_t>> tx_map;		// [txid => [tx, height]] (executed + pending only)
 
 	std::multimap<uint32_t, std::shared_ptr<fork_t>> fork_index;					// [height => fork]
 	std::unordered_map<hash_t, std::shared_ptr<fork_t>> fork_tree;					// [block hash => fork] (pending only)
@@ -294,6 +297,7 @@ private:
 	uint32_t sync_retry = 0;
 	std::set<uint32_t> sync_pending;						// set of heights
 	vnx::optional<uint32_t> sync_peak;						// max height we can sync
+	std::unordered_set<hash_t> fetch_pending;				// block hash
 
 	std::shared_ptr<vnx::Timer> stuck_timer;
 	std::shared_ptr<vnx::Timer> update_timer;

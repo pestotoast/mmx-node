@@ -5,6 +5,8 @@ module WebAPI implements vnx.addons.HttpComponent {
 	vnx.TopicPtr input_blocks = "node.verified_blocks";
 	
 	string node_server = "Node";
+	string wallet_server = "Wallet";
+	string exchange_server = "ExchClient";
 	
 	uint max_block_history = 1000;
 	

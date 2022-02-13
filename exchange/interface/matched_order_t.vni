@@ -6,13 +6,11 @@ import mmx.Transaction;
 
 struct matched_order_t {
 	
-	trade_pair_t pair;
-	
 	ulong bid;
 	ulong ask;
 	
-	Transaction* tx;
+	trade_pair_t pair;
 	
-	vector<pair<txio_key_t, utxo_t>> utxo_list;
+	Transaction* tx;
 	
 }	

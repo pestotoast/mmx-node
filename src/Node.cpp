@@ -19,6 +19,10 @@
 #include <atomic>
 #include <algorithm>
 
+#ifdef WITH_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
+
 
 namespace mmx {
 
@@ -81,17 +85,18 @@ void Node::main()
 	if(block_chain->exists()) {
 		const auto time_begin = vnx::get_wall_time_millis();
 		block_chain->open("rb+");
-		int64_t last_pos = 0;
-		while(auto block = read_block(true, &last_pos)) {
+		int64_t offset = 0;
+		while(auto block = read_block(*block_chain, &offset)) {
 			if(block->height >= replay_height) {
-				block_chain->seek_to(last_pos);
+				block_chain->seek_to(offset);
 				// preemptively mark end of file since we purge DB entries now
 				vnx::write(block_chain->out, nullptr);
-				block_chain->seek_to(last_pos);
+				block_chain->seek_to(offset);
 				break;
 			}
 			apply(block);
 			commit(block);
+			block_index[block->height] = std::make_pair(offset, block->hash);
 		}
 		if(auto peak = get_peak()) {
 			log(INFO) << "Loaded " << peak->height + 1 << " blocks from disk, took " << (vnx::get_wall_time_millis() - time_begin) / 1e3 << " sec";
@@ -227,13 +232,13 @@ std::shared_ptr<const Block> Node::get_block(const hash_t& hash) const
 
 std::shared_ptr<const Block> Node::get_block_at(const uint32_t& height) const
 {
+	// THREAD SAFE (for concurrent reads)
 	auto iter = block_index.find(height);
 	if(iter != block_index.end()) {
-		const auto prev_pos = block_chain->get_output_pos();
-		block_chain->seek_to(iter->second.first);
-		const auto block = ((Node*)this)->read_block();
-		block_chain->seek_to(prev_pos);
-		return block;
+		vnx::File file(block_chain->get_path());
+		file.open("rb");
+		file.seek_to(iter->second.first);
+		return read_block(file);
 	}
 	const auto line = get_fork_line();
 	if(!line.empty()) {
@@ -307,7 +312,7 @@ vnx::optional<uint32_t> Node::get_tx_height(const hash_t& id) const
 	{
 		auto iter = tx_map.find(id);
 		if(iter != tx_map.end()) {
-			return iter->second;
+			return iter->second.second;
 		}
 	}
 	{
@@ -346,11 +351,16 @@ vnx::optional<tx_info_t> Node::get_tx_info(const hash_t& id) const
 		}
 		for(size_t i = 0; i < tx->outputs.size() + tx->exec_outputs.size(); ++i) {
 			txo_info_t entry;
-			if(auto txo = get_txo_info(txio_key_t::create_ex(id, i))) {
+			entry.key = txio_key_t::create_ex(id, i);
+			if(auto txo = get_txo_info(entry.key)) {
 				entry = *txo;
-				info.output_amounts[txo->output.contract] += txo->output.amount;
+			} else if(i < tx->outputs.size()) {
+				entry.output.tx_out_t::operator=(tx->outputs[i]);
+			} else {
+				entry.output.tx_out_t::operator=(tx->exec_outputs[i - tx->outputs.size()]);
 			}
 			info.outputs.push_back(entry);
+			info.output_amounts[entry.output.contract] += entry.output.amount;
 			contracts.insert(entry.output.contract);
 		}
 		for(const auto& op : tx->execute) {
@@ -372,10 +382,11 @@ vnx::optional<tx_info_t> Node::get_tx_info(const hash_t& id) const
 
 vnx::optional<txo_info_t> Node::get_txo_info(const txio_key_t& key) const
 {
+	txo_info_t info;
+	info.key = key;
 	{
 		auto iter = utxo_map.find(key);
 		if(iter != utxo_map.end()) {
-			txo_info_t info;
 			info.output = iter->second;
 			return info;
 		}
@@ -383,7 +394,6 @@ vnx::optional<txo_info_t> Node::get_txo_info(const txio_key_t& key) const
 	{
 		stxo_t stxo;
 		if(stxo_index.find(key, stxo)) {
-			txo_info_t info;
 			info.output = stxo;
 			info.spent = stxo.spent;
 			return info;
@@ -392,14 +402,12 @@ vnx::optional<txo_info_t> Node::get_txo_info(const txio_key_t& key) const
 	for(const auto& log : change_log) {
 		auto iter = log->utxo_removed.find(key);
 		if(iter != log->utxo_removed.end()) {
-			txo_info_t info;
 			info.output = iter->second;
 			info.spent = iter->second.spent;
 			return info;
 		}
 	}
 	if(auto tx = get_transaction(key.txid)) {
-		txo_info_t info;
 		info.output = utxo_t::create_ex(tx->get_output(key.index));
 		return info;
 	}
@@ -418,8 +426,13 @@ std::vector<vnx::optional<txo_info_t>> Node::get_txo_infos(const std::vector<txi
 std::shared_ptr<const Transaction> Node::get_transaction(const hash_t& id, const vnx::bool_t& include_pending) const
 {
 	// THREAD SAFE (for concurrent reads)
-	if(include_pending || tx_map.count(id))
 	{
+		auto iter = tx_map.find(id);
+		if(iter != tx_map.end()) {
+			return iter->second.first;
+		}
+	}
+	if(include_pending) {
 		auto iter = tx_pool.find(id);
 		if(iter != tx_pool.end()) {
 			return iter->second;
@@ -654,6 +667,7 @@ bool Node::include_transaction(std::shared_ptr<const Transaction> tx)
 		}
 	}
 	if(const auto& contract = tx->deploy) {
+		// TODO: use get_parties()
 		if(auto owner = contract->get_owner()) {
 			if(light_address_set.count(*owner)) {
 				return true;
@@ -706,26 +720,30 @@ void Node::add_block(std::shared_ptr<const Block> block)
 	// fetch missing previous
 	if(is_synced && !fork_tree.count(block->prev))
 	{
+		const auto hash = block->prev;
 		const auto height = block->height - 1;
-		if(!sync_pending.count(height) && height > root->height)
+		if(!fetch_pending.count(hash) && height > root->height)
 		{
-			router->get_blocks_at(height, std::bind(&Node::sync_result, this, height, std::placeholders::_1));
-			sync_pending.insert(height);
-			log(WARN) << "Fetching missed block at height " << height << " with hash " << block->prev;
+			router->fetch_block(hash, nullptr, std::bind(&Node::fetch_result, this, hash, std::placeholders::_1));
+			fetch_pending.insert(hash);
+			log(WARN) << "Fetching missed block at height " << height << " with hash " << hash;
 		}
 	}
 }
 
 void Node::add_transaction(std::shared_ptr<const Transaction> tx, const vnx::bool_t& pre_validate)
 {
-	if(tx_pool.size() >= tx_pool_limit) {
-		return;
-	}
 	if(tx_pool.count(tx->id)) {
 		return;
 	}
+	if(tx_pool.size() >= tx_pool_limit) {
+		throw std::logic_error("tx pool at limit");
+	}
 	if(!tx->is_valid()) {
-		return;
+		throw std::logic_error("invalid tx");
+	}
+	if(tx->calc_cost(params) > params->max_block_cost) {
+		throw std::logic_error("tx cost > max_block_cost");
 	}
 	if(pre_validate) {
 		validate(tx);
@@ -850,15 +868,16 @@ void Node::http_request_chunk_async(std::shared_ptr<const vnx::addons::HttpReque
 
 void Node::handle(std::shared_ptr<const Block> block)
 {
+	if(!block->proof) {
+		return;
+	}
 	if(!is_synced) {
 		const auto peak = get_peak();
 		if(peak && block->height > peak->height && block->height - peak->height > 2 * params->commit_delay) {
 			return;
 		}
 	}
-	if(block->proof) {
-		add_block(block);
-	}
+	add_block(block);
 }
 
 void Node::handle(std::shared_ptr<const Transaction> tx)
@@ -938,9 +957,23 @@ void Node::handle(std::shared_ptr<const ProofResponse> value)
 	}
 }
 
+#ifdef WITH_JEMALLOC
+static void malloc_stats_callback(void* file, const char* data) {
+	fwrite(data, 1, strlen(data), (FILE*)file);
+}
+#endif
+
 void Node::print_stats()
 {
-	 log(INFO) << tx_pool.size() << " tx pool, " << contract_map.size() << " contracts, "
+#ifdef WITH_JEMALLOC
+	{
+		const std::string path = storage_path + "node_malloc_info.txt";
+		FILE* file = fopen(path.c_str(), "w");
+		malloc_stats_print(&malloc_stats_callback, file, 0);
+		fclose(file);
+	}
+#endif
+	log(INFO) << tx_pool.size() << " tx pool, " << contract_map.size() << " contracts, "
 			 << utxo_map.size() << " utxo, " << change_log.size() << " / " << fork_tree.size() << " blocks";
 }
 
@@ -1017,6 +1050,14 @@ void Node::sync_result(const uint32_t& height, const std::vector<std::shared_ptr
 	}
 }
 
+void Node::fetch_result(const hash_t& hash, std::shared_ptr<const Block> block)
+{
+	if(block) {
+		add_block(block);
+	}
+	fetch_pending.erase(hash);
+}
+
 std::shared_ptr<const BlockHeader> Node::fork_to(const hash_t& state)
 {
 	if(auto fork = find_fork(state)) {
@@ -1065,7 +1106,7 @@ std::shared_ptr<const BlockHeader> Node::fork_to(std::shared_ptr<fork_t> fork_he
 	// verify and apply
 	for(const auto& fork : fork_line)
 	{
-		const auto& block = fork->block;
+		auto& block = fork->block;
 		if(block->prev != state_hash) {
 			// already verified and applied
 			continue;
@@ -1073,7 +1114,7 @@ std::shared_ptr<const BlockHeader> Node::fork_to(std::shared_ptr<fork_t> fork_he
 		if(!fork->is_verified) {
 			try {
 				if(!light_mode) {
-					validate(block);
+					block = validate(block);
 				}
 				if(!fork->is_vdf_verified) {
 					if(auto prev = find_prev_header(block)) {
@@ -1134,22 +1175,19 @@ std::shared_ptr<Node::fork_t> Node::find_best_fork(std::shared_ptr<const BlockHe
 			prev_best = best_fork;
 			curr_height = iter->first;
 		}
-		if(prev) {
-			fork->total_weight = prev->total_weight;
+		fork->score_bonus = 0;
+		if(iter != begin && prev) {
+			fork->total_weight = prev->total_weight + fork->weight;
+			// add buffer bonus if not weak proof and did not orphan previous
 			if(!prev_best || prev == prev_best || !fork->vdf_point || prev_best->recv_time > fork->vdf_point->recv_time) {
 				if(!fork->has_weak_proof) {
-					fork->total_weight += std::min<int32_t>(prev->weight_buffer, params->score_threshold);
+					fork->score_bonus = std::min<int32_t>(prev->weight_buffer, params->score_threshold);
+					fork->total_weight += uint128_t(fork->score_bonus) * fork->diff_block->time_diff * fork->diff_block->space_diff;
 				}
-				fork->total_weight += fork->weight;
-			} else {
-				fork->total_weight -= params->score_threshold;		// orphan penalty
 			}
 			fork->weight_buffer = std::min<int32_t>(std::max(prev->weight_buffer + fork->buffer_delta, 0), params->max_weight_buffer);
 		} else {
 			fork->total_weight = fork->weight;
-		}
-		if(fork->total_weight >> 127) {
-			fork->total_weight = 0;		// clamp to zero
 		}
 		if(!best_fork
 			|| fork->total_weight > max_weight
@@ -1311,8 +1349,7 @@ void Node::apply(std::shared_ptr<const Block> block, std::shared_ptr<const Trans
 		contract_map.erase(tx->id);
 		log.deployed.emplace(tx->id, contract);
 	}
-	tx_map[tx->id] = block->height;
-	tx_pool.emplace(tx->id, tx);
+	tx_map[tx->id] = std::make_pair(tx, block->height);
 	log.tx_added.push_back(tx->id);
 }
 
@@ -1345,9 +1382,6 @@ bool Node::revert() noexcept
 	}
 	for(const auto& txid : log->tx_added) {
 		tx_map.erase(txid);
-	}
-	if(const auto& txid = log->tx_base) {
-		tx_pool.erase(*txid);
 	}
 	for(const auto& entry : log->deployed) {
 		contract_map.erase(entry.first);
@@ -1513,18 +1547,16 @@ uint64_t Node::calc_block_reward(std::shared_ptr<const BlockHeader> block) const
 	return 0;
 }
 
-std::shared_ptr<const Block> Node::read_block(bool is_replay, int64_t* file_offset)
+std::shared_ptr<const Block> Node::read_block(vnx::File& file, int64_t* file_offset) const
 {
-	auto& in = block_chain->in;
+	// THREAD SAFE (for concurrent reads)
+	auto& in = file.in;
 	const auto offset = in.get_input_pos();
 	if(file_offset) {
 		*file_offset = offset;
 	}
 	try {
 		if(auto header = std::dynamic_pointer_cast<BlockHeader>(vnx::read(in))) {
-			if(is_replay) {
-				block_index[header->height] = std::make_pair(offset, header->hash);
-			}
 			auto block = Block::create();
 			block->BlockHeader::operator=(*header);
 			while(true) {
@@ -1541,7 +1573,7 @@ std::shared_ptr<const Block> Node::read_block(bool is_replay, int64_t* file_offs
 	} catch(const std::exception& ex) {
 		log(WARN) << "Failed to read block: " << ex.what();
 	}
-	block_chain->seek_to(offset);
+	file.seek_to(offset);
 	return nullptr;
 }
 

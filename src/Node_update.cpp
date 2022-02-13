@@ -174,8 +174,7 @@ void Node::update()
 					fork->is_finalized = true;
 					if(!do_sync || (sync_peak && block->height >= *sync_peak)) {
 						log(INFO) << "Finalized height " << block->height << " with: ntx = " << block->tx_list.size()
-								<< ", k = " << (block->proof ? block->proof->ksize : 0)
-								<< ", score = " << fork->proof_score << ", buffer = " << fork->weight_buffer
+								<< ", k = " << (block->proof ? block->proof->ksize : 0) << ", score = " << fork->proof_score
 								<< ", tdiff = " << block->time_diff << ", sdiff = " << block->space_diff
 								<< (fork->has_weak_proof ? ", weak proof" : "");
 					}

@@ -8,17 +8,22 @@
 #include <mmx/Block.hxx>
 #include <mmx/Transaction.hxx>
 #include <mmx/addr_t.hpp>
+#include <mmx/exchange/LocalTrade.hxx>
 #include <mmx/exchange/OfferBundle.hxx>
 #include <mmx/exchange/amount_t.hxx>
 #include <mmx/exchange/matched_order_t.hxx>
 #include <mmx/exchange/open_order_t.hxx>
 #include <mmx/exchange/order_t.hxx>
+#include <mmx/exchange/trade_entry_t.hxx>
 #include <mmx/exchange/trade_order_t.hxx>
 #include <mmx/exchange/trade_pair_t.hxx>
 #include <mmx/hash_t.hpp>
 #include <mmx/txio_key_t.hxx>
 #include <mmx/ulong_fraction_t.hxx>
 #include <vnx/TopicPtr.hpp>
+#include <vnx/addons/HttpData.hxx>
+#include <vnx/addons/HttpRequest.hxx>
+#include <vnx/addons/HttpResponse.hxx>
 #include <vnx/addons/MsgServer.h>
 
 
@@ -61,17 +66,25 @@ public:
 	
 	::mmx::hash_t execute(const std::string& server = "", const uint32_t& wallet = 0, const ::mmx::exchange::matched_order_t& order = ::mmx::exchange::matched_order_t());
 	
-	std::vector<::mmx::exchange::matched_order_t> match(const std::string& server = "", const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const std::vector<::mmx::exchange::trade_order_t>& orders = {});
+	std::vector<::mmx::exchange::matched_order_t> match(const std::string& server = "", const std::vector<::mmx::exchange::trade_order_t>& orders = {});
 	
-	std::vector<::mmx::exchange::order_t> get_orders(const std::string& server = "", const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t());
+	std::vector<::mmx::exchange::trade_pair_t> get_trade_pairs(const std::string& server = "");
+	
+	std::vector<::mmx::exchange::order_t> get_orders(const std::string& server = "", const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const int32_t& limit = -1);
+	
+	std::vector<::mmx::exchange::trade_entry_t> get_trade_history(const std::string& server = "", const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const int32_t& limit = -1);
 	
 	::mmx::ulong_fraction_t get_price(const std::string& server = "", const ::mmx::addr_t& want = ::mmx::addr_t(), const ::mmx::exchange::amount_t& have = ::mmx::exchange::amount_t());
 	
-	vnx::optional<::mmx::exchange::open_order_t> get_order(const ::mmx::txio_key_t& key = ::mmx::txio_key_t());
+	::mmx::ulong_fraction_t get_min_trade(const std::string& server = "", const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t());
+	
+	::mmx::exchange::open_order_t get_order(const ::mmx::txio_key_t& key = ::mmx::txio_key_t());
 	
 	std::shared_ptr<const ::mmx::exchange::OfferBundle> get_offer(const uint64_t& id = 0);
 	
 	std::vector<std::shared_ptr<const ::mmx::exchange::OfferBundle>> get_all_offers();
+	
+	std::vector<std::shared_ptr<const ::mmx::exchange::LocalTrade>> get_local_history(const vnx::optional<::mmx::exchange::trade_pair_t>& pair = nullptr, const int32_t& limit = -1);
 	
 	void cancel_offer(const uint64_t& id = 0);
 	
@@ -81,7 +94,7 @@ public:
 	
 	void cancel_all_async();
 	
-	std::shared_ptr<const ::mmx::exchange::OfferBundle> make_offer(const uint32_t& wallet = 0, const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const uint64_t& bid = 0, const uint64_t& ask = 0);
+	std::shared_ptr<const ::mmx::exchange::OfferBundle> make_offer(const uint32_t& wallet = 0, const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const uint64_t& bid = 0, const uint64_t& ask = 0, const uint32_t& num_chunks = 1);
 	
 	std::vector<::mmx::exchange::trade_order_t> make_trade(const uint32_t& wallet = 0, const ::mmx::exchange::trade_pair_t& pair = ::mmx::exchange::trade_pair_t(), const uint64_t& bid = 0, const vnx::optional<uint64_t>& ask = nullptr);
 	
@@ -90,6 +103,10 @@ public:
 	void place_async(std::shared_ptr<const ::mmx::exchange::OfferBundle> offer = nullptr);
 	
 	std::shared_ptr<const ::mmx::Transaction> approve(std::shared_ptr<const ::mmx::Transaction> tx = nullptr);
+	
+	std::shared_ptr<const ::vnx::addons::HttpResponse> http_request(std::shared_ptr<const ::vnx::addons::HttpRequest> request = nullptr, const std::string& sub_path = "");
+	
+	std::shared_ptr<const ::vnx::addons::HttpData> http_request_chunk(std::shared_ptr<const ::vnx::addons::HttpRequest> request = nullptr, const std::string& sub_path = "", const int64_t& offset = 0, const int64_t& max_bytes = 0);
 	
 };
 
