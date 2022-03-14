@@ -10,7 +10,7 @@
 
 namespace mmx {
 
-class Node_add_transaction_return : public ::vnx::Value {
+class MMX_EXPORT Node_add_transaction_return : public ::vnx::Value {
 public:
 	
 	

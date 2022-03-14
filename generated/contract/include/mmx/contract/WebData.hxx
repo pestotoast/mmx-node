@@ -14,7 +14,7 @@
 namespace mmx {
 namespace contract {
 
-class WebData : public ::mmx::Contract {
+class MMX_CONTRACT_EXPORT WebData : public ::mmx::Contract {
 public:
 	
 	std::string mime_type;

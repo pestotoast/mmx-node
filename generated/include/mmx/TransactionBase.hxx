@@ -12,7 +12,7 @@
 
 namespace mmx {
 
-class TransactionBase : public ::vnx::Value {
+class MMX_EXPORT TransactionBase : public ::vnx::Value {
 public:
 	
 	::mmx::hash_t id;

@@ -10,7 +10,7 @@
 
 namespace mmx {
 
-struct account_t {
+struct MMX_EXPORT account_t {
 	
 	
 	uint32_t index = 0;

@@ -11,7 +11,7 @@
 
 namespace mmx {
 
-struct peer_info_t {
+struct MMX_EXPORT peer_info_t {
 	
 	
 	std::string address;

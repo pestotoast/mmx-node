@@ -10,7 +10,7 @@
 
 namespace mmx {
 
-class Harvester_get_farm_info : public ::vnx::Value {
+class MMX_EXPORT Harvester_get_farm_info : public ::vnx::Value {
 public:
 	
 	

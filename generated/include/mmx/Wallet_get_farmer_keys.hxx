@@ -10,7 +10,7 @@
 
 namespace mmx {
 
-class Wallet_get_farmer_keys : public ::vnx::Value {
+class MMX_EXPORT Wallet_get_farmer_keys : public ::vnx::Value {
 public:
 	
 	uint32_t index = 0;

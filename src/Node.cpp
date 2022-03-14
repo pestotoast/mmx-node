@@ -716,19 +716,6 @@ void Node::add_block(std::shared_ptr<const Block> block)
 	fork->recv_time = vnx::get_wall_time_micros();
 	fork->block = block;
 	add_fork(fork);
-
-	// fetch missing previous
-	if(is_synced && !fork_tree.count(block->prev))
-	{
-		const auto hash = block->prev;
-		const auto height = block->height - 1;
-		if(!fetch_pending.count(hash) && height > root->height)
-		{
-			router->fetch_block(hash, nullptr, std::bind(&Node::fetch_result, this, hash, std::placeholders::_1));
-			fetch_pending.insert(hash);
-			log(WARN) << "Fetching missed block at height " << height << " with hash " << hash;
-		}
-	}
 }
 
 void Node::add_transaction(std::shared_ptr<const Transaction> tx, const vnx::bool_t& pre_validate)
@@ -871,11 +858,9 @@ void Node::handle(std::shared_ptr<const Block> block)
 	if(!block->proof) {
 		return;
 	}
-	if(!is_synced) {
-		const auto peak = get_peak();
-		if(peak && block->height > peak->height && block->height - peak->height > 2 * params->commit_delay) {
-			return;
-		}
+	const auto peak = get_peak();
+	if(peak && block->height > peak->height && block->height - peak->height > 2 * params->commit_delay) {
+		return;
 	}
 	add_block(block);
 }
@@ -966,7 +951,8 @@ static void malloc_stats_callback(void* file, const char* data) {
 void Node::print_stats()
 {
 #ifdef WITH_JEMALLOC
-	{
+	static size_t counter = 0;
+	if(counter++ % 15 == 0) {
 		const std::string path = storage_path + "node_malloc_info.txt";
 		FILE* file = fopen(path.c_str(), "w");
 		malloc_stats_print(&malloc_stats_callback, file, 0);
@@ -1018,13 +1004,18 @@ void Node::sync_more()
 		return;
 	}
 	const auto max_pending = !sync_retry ? max_sync_jobs : 1;
-	while(sync_pending.size() < max_pending) {
-		if(sync_peak && sync_pos >= *sync_peak) {
-			break;
-		}
+
+	while(sync_pending.size() < max_pending && (!sync_peak || sync_pos < *sync_peak))
+	{
 		const auto height = sync_pos++;
-		router->get_blocks_at(height, std::bind(&Node::sync_result, this, height, std::placeholders::_1));
 		sync_pending.insert(height);
+		router->get_blocks_at(height,
+				std::bind(&Node::sync_result, this, height, std::placeholders::_1),
+				[this, height](const vnx::exception& ex) {
+					sync_pos = height;
+					sync_pending.erase(height);
+					log(WARN) << "get_blocks_at() failed with: " << ex.what();
+				});
 	}
 }
 
@@ -1060,6 +1051,9 @@ void Node::fetch_result(const hash_t& hash, std::shared_ptr<const Block> block)
 
 std::shared_ptr<const BlockHeader> Node::fork_to(const hash_t& state)
 {
+	if(state == state_hash) {
+		return nullptr;
+	}
 	if(auto fork = find_fork(state)) {
 		return fork_to(fork);
 	}
@@ -1150,18 +1144,15 @@ std::shared_ptr<const BlockHeader> Node::fork_to(std::shared_ptr<fork_t> fork_he
 	return did_fork ? forked_at : nullptr;
 }
 
-std::shared_ptr<Node::fork_t> Node::find_best_fork(std::shared_ptr<const BlockHeader> root, const uint32_t* at_height) const
+std::shared_ptr<Node::fork_t> Node::find_best_fork() const
 {
-	if(!root) {
-		root = get_root();
-	}
 	uint32_t curr_height = 0;
 	uint128_t max_weight = 0;
 	std::shared_ptr<fork_t> best_fork;
 	std::shared_ptr<fork_t> prev_best;
-	const auto begin = at_height ? fork_index.lower_bound(*at_height) : fork_index.upper_bound(root->height);
-	const auto end =   at_height ? fork_index.upper_bound(*at_height) : fork_index.end();
-	for(auto iter = begin; iter != end; ++iter)
+	const auto root = get_root();
+	const auto begin = fork_index.upper_bound(root->height);
+	for(auto iter = begin; iter != fork_index.end(); ++iter)
 	{
 		const auto& fork = iter->second;
 		const auto prev = fork->prev.lock();
@@ -1188,6 +1179,7 @@ std::shared_ptr<Node::fork_t> Node::find_best_fork(std::shared_ptr<const BlockHe
 			fork->weight_buffer = std::min<int32_t>(std::max(prev->weight_buffer + fork->buffer_delta, 0), params->max_weight_buffer);
 		} else {
 			fork->total_weight = fork->weight;
+			fork->weight_buffer = std::max(fork->buffer_delta, 0);
 		}
 		if(!best_fork
 			|| fork->total_weight > max_weight
@@ -1524,7 +1516,8 @@ std::shared_ptr<Node::vdf_point_t> Node::find_next_vdf_point(std::shared_ptr<con
 		const auto infused = find_prev_header(block, params->finality_delay, true);
 		const auto vdf_iters = block->vdf_iters + diff_block->time_diff * params->time_diff_constant;
 
-		for(auto iter = verified_vdfs.lower_bound(height); iter != verified_vdfs.upper_bound(height); ++iter) {
+		for(auto iter = verified_vdfs.lower_bound(height); iter != verified_vdfs.upper_bound(height); ++iter)
+		{
 			const auto& point = iter->second;
 			if(block->vdf_iters == point->vdf_start && vdf_iters == point->vdf_iters && block->vdf_output == point->input
 				&& ((!infused && !point->infused) || (infused && point->infused && infused->hash == *point->infused)))

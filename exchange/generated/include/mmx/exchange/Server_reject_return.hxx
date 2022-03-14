@@ -11,7 +11,7 @@
 namespace mmx {
 namespace exchange {
 
-class Server_reject_return : public ::vnx::Value {
+class MMX_EXCHANGE_EXPORT Server_reject_return : public ::vnx::Value {
 public:
 	
 	

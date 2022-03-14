@@ -37,6 +37,17 @@ void Wallet::main()
 	params = get_params();
 
 	vnx::Directory(config_path).create();
+	vnx::Directory(storage_path).create();
+	vnx::Directory(database_path).create();
+	{
+		::rocksdb::Options options;
+		options.max_open_files = 4;
+		options.keep_log_file_num = 3;
+		options.max_manifest_file_size = 8 * 1024 * 1024;
+		options.OptimizeForSmallDb();
+
+		tx_log.open(database_path + "tx_log", options);
+	}
 
 	node = std::make_shared<NodeClient>(node_server);
 	http = std::make_shared<vnx::addons::HttpInterface<Wallet>>(this, vnx_name);
@@ -140,7 +151,6 @@ vnx::optional<hash_t> Wallet::split(const uint32_t& index, const uint64_t& max_a
 
 	auto tx = Transaction::create();
 	uint64_t total = 0;
-	std::vector<std::pair<txio_key_t, utxo_t>> utxo_list;
 	for(const auto& entry : get_utxo_list_for(index, currency, options.min_confirm)) {
 		const auto& utxo = entry.output;
 		if(utxo.amount > max_amount && wallet->is_spendable(entry.key) && !exclude.count(entry.key)) {
@@ -148,17 +158,32 @@ vnx::optional<hash_t> Wallet::split(const uint32_t& index, const uint64_t& max_a
 			in.prev = entry.key;
 			tx->inputs.push_back(in);
 			total += utxo.amount;
-			utxo_list.emplace_back(entry.key, utxo);
 		}
 	}
-	if(utxo_list.empty()) {
+	if(!total) {
 		return nullptr;
 	}
-	{
-		const auto split = (total + max_amount - 1) / max_amount;
-		tx->add_output(currency, wallet->get_address(0), total, split);
+	const auto dst_addr = wallet->get_address(0);
+	const auto num_split = (total - (currency == addr_t() ? std::min<uint64_t>(1000000, total) : 0)) / max_amount;
+
+	auto left = total;
+	for(size_t i = 0; i < num_split; ++i) {
+		tx_out_t out;
+		out.contract = currency;
+		out.address = dst_addr;
+		out.amount = max_amount;
+		tx->outputs.push_back(out);
+		left -= out.amount;
 	}
-	auto signed_tx = sign_off(index, tx, true, utxo_list);
+	if(left && currency != addr_t()) {
+		tx_out_t out;
+		out.contract = currency;
+		out.address = dst_addr;
+		out.amount = left;
+		tx->outputs.push_back(out);
+		left = 0;
+	}
+	auto signed_tx = sign_off(index, tx, true, {});
 	send_off(index, signed_tx);
 	return signed_tx->id;
 }
@@ -220,7 +245,7 @@ Wallet::sign_off(	const uint32_t& index, std::shared_ptr<const Transaction> tx,
 	for(const auto& entry : wallet->utxo_cache) {
 		if(spent_keys.erase(entry.key)) {
 			const auto& utxo = entry.output;
-			if(utxo.contract == addr_t()) {
+			if(utxo.contract == addr_t() && !utxo_map.count(entry.key)) {
 				native_change += utxo.amount;
 			}
 			spent_map[entry.key] = utxo;
@@ -267,6 +292,12 @@ void Wallet::send_off(const uint32_t& index, std::shared_ptr<const Transaction> 
 	const auto wallet = get_wallet(index);
 	node->add_transaction(tx);
 	wallet->update_from(tx);
+	{
+		tx_log_entry_t entry;
+		entry.time = vnx::get_time_millis();
+		entry.tx = tx;
+		tx_log.insert(wallet->get_address(0), entry);
+	}
 }
 
 void Wallet::mark_spent(const uint32_t& index, const std::vector<txio_key_t>& keys)
@@ -382,6 +413,23 @@ std::vector<tx_entry_t> Wallet::get_history(const uint32_t& index, const int32_t
 {
 	const auto wallet = get_wallet(index);
 	return node->get_history_for(wallet->get_all_addresses(), since);
+}
+
+std::vector<tx_log_entry_t> Wallet::get_tx_history(const uint32_t& index, const int32_t& limit_, const uint32_t& offset) const
+{
+	const auto wallet = get_wallet(index);
+	const size_t limit = limit_ >= 0 ? limit_ : uint32_t(-1);
+
+	std::vector<tx_log_entry_t> res;
+	tx_log.find_last(wallet->get_address(0), res, limit + offset);
+	if(offset) {
+		const auto tmp = std::move(res);
+		res.clear();
+		for(size_t i = 0; i < limit && i + offset < tmp.size(); ++i) {
+			res.push_back(tmp[i + offset]);
+		}
+	}
+	return res;
 }
 
 balance_t Wallet::get_balance(const uint32_t& index, const addr_t& currency, const uint32_t& min_confirm) const

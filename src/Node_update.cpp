@@ -87,8 +87,7 @@ void Node::update()
 	std::vector<std::shared_ptr<fork_t>> to_verify;
 	{
 		const auto root = get_root();
-		for(const auto& entry : fork_index)
-		{
+		for(const auto& entry : fork_index) {
 			const auto& fork = entry.second;
 			if(fork->is_proof_verified) {
 				continue;
@@ -100,6 +99,21 @@ void Node::update()
 						fork->is_invalid = true;
 					}
 					fork->prev = prev;
+				}
+				else if(is_synced) {
+					// fetch missing previous
+					const auto hash = block->prev;
+					const auto height = block->height - 1;
+					if(!fetch_pending.count(hash) && height > root->height)
+					{
+						fetch_pending.insert(hash);
+						router->fetch_block(hash, nullptr,
+								std::bind(&Node::fetch_result, this, hash, std::placeholders::_1),
+								[this, hash](const vnx::exception&) {
+									fetch_pending.erase(hash);
+								});
+						log(WARN) << "Fetching missed block at height " << height << " with hash " << hash;
+					}
 				}
 			}
 			if(!fork->diff_block) {
@@ -124,7 +138,7 @@ void Node::update()
 		}
 	}
 
-#pragma omp parallel for
+#pragma omp parallel for if(!is_synced)
 	for(size_t i = 0; i < to_verify.size(); ++i)
 	{
 		const auto& fork = to_verify[i];
@@ -320,42 +334,40 @@ void Node::update()
 	{
 		auto prev = peak;
 		bool made_block = false;
+		std::shared_ptr<fork_t> best_fork;
 		for(uint32_t i = 0; prev && i <= 1; ++i)
 		{
 			if(prev->height < root->height) {
 				break;
 			}
 			hash_t vdf_challenge;
-			if(!find_vdf_challenge(prev, vdf_challenge, 1)) {
-				break;
-			}
-			const auto challenge = get_challenge(prev, vdf_challenge, 1);
+			if(find_vdf_challenge(prev, vdf_challenge, 1))
+			{
+				const auto challenge = get_challenge(prev, vdf_challenge, 1);
 
-			auto iter = proof_map.find(challenge);
-			if(iter != proof_map.end()) {
-				const auto proof = iter->second;
-				// check if it's our proof
-				if(vnx::get_pipe(proof->farmer_addr))
-				{
-					const auto next_height = prev->height + 1;
-					const auto best_fork = find_best_fork(prev, &next_height);
-					// check if we have a better proof
-					if(!best_fork || proof->score < best_fork->proof_score) {
-						try {
-							if(make_block(prev, proof)) {
-								made_block = true;
+				auto iter = proof_map.find(challenge);
+				if(iter != proof_map.end()) {
+					const auto proof = iter->second;
+					// check if it's our proof
+					if(vnx::get_pipe(proof->farmer_addr))
+					{
+						// check if we have a better proof
+						if(!best_fork || proof->score < best_fork->proof_score) {
+							try {
+								if(make_block(prev, proof)) {
+									made_block = true;
+								}
 							}
-						}
-						catch(const std::exception& ex) {
-							log(WARN) << "Failed to create a block: " << ex.what();
-						}
-						// revert back to peak
-						if(auto fork = find_fork(peak->hash)) {
-							fork_to(fork);
+							catch(const std::exception& ex) {
+								log(WARN) << "Failed to create a block: " << ex.what();
+							}
+							// revert back to peak
+							fork_to(peak->hash);
 						}
 					}
 				}
 			}
+			best_fork = find_fork(prev->hash);
 			prev = find_prev_header(prev);
 		}
 		if(made_block) {
@@ -458,22 +470,34 @@ bool Node::make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<c
 	}
 	block->proof = response->proof;
 
-	struct tx_entry_t {
+	struct tx_data_t {
+		bool invalid = false;
 		uint64_t fees = 0;
 		uint64_t cost = 0;
 		double fee_ratio = 0;
 		std::shared_ptr<const Transaction> tx;
 	};
 
-	std::vector<tx_entry_t> tx_list;
-	std::unordered_set<hash_t> invalid;
-	std::unordered_set<hash_t> postpone;
+	std::vector<tx_data_t> tx_list;
+	std::unordered_multimap<hash_t, hash_t> dependency;
 
 	for(const auto& entry : tx_pool) {
-		if(!tx_map.count(entry.first)) {
-			tx_entry_t tmp;
-			tmp.tx = entry.second;
-			tx_list.push_back(tmp);
+		const auto& tx = entry.second;
+		if(!tx_map.count(tx->id)) {
+			bool depends = false;
+			for(const auto& in : tx->inputs) {
+				const auto& prev = in.prev.txid;
+				// check if tx depends on another one which is not in a block yet
+				if(tx_pool.count(prev) && !tx_map.count(prev)) {
+					dependency.emplace(prev, tx->id);
+					depends = true;
+				}
+			}
+			if(!depends) {
+				tx_data_t tmp;
+				tmp.tx = tx;
+				tx_list.push_back(tmp);
+			}
 		}
 	}
 	auto context = Context::create();
@@ -484,18 +508,6 @@ bool Node::make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<c
 	{
 		auto& entry = tx_list[i];
 		auto& tx = entry.tx;
-		// check if tx depends on another one which is not in a block yet
-		bool depends = false;
-		for(const auto& in : tx->inputs) {
-			if(tx_pool.count(in.prev.txid) && !tx_map.count(in.prev.txid)) {
-				depends = true;
-			}
-		}
-		if(depends) {
-#pragma omp critical
-			postpone.insert(tx->id);
-			continue;
-		}
 		try {
 			const auto cost = tx->calc_cost(params);
 			if(cost > params->max_block_cost) {
@@ -513,54 +525,68 @@ bool Node::make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<c
 			entry.fee_ratio = entry.fees / double(cost);
 		}
 		catch(const std::exception& ex) {
-#pragma omp critical
-			invalid.insert(tx->id);
+			entry.invalid = true;
 			log(WARN) << "TX validation failed with: " << ex.what();
 		}
 	}
 
 	// sort by fee ratio
 	std::sort(tx_list.begin(), tx_list.end(),
-		[](const tx_entry_t& lhs, const tx_entry_t& rhs) -> bool {
+		[](const tx_data_t& lhs, const tx_data_t& rhs) -> bool {
 			return lhs.fee_ratio > rhs.fee_ratio;
 		});
 
 	uint64_t total_fees = 0;
 	uint64_t total_cost = 0;
+	std::unordered_set<hash_t> invalid;
 	std::unordered_set<addr_t> mutated;
 	std::unordered_set<txio_key_t> spent;
 
+	// select transactions
 	for(size_t i = 0; i < tx_list.size(); ++i)
 	{
 		const auto& entry = tx_list[i];
 		const auto& tx = entry.tx;
-		if(!invalid.count(tx->id) && !postpone.count(tx->id))
+		if(entry.invalid) {
+			invalid.insert(tx->id);
+			continue;
+		}
+		if(total_cost + entry.cost < params->max_block_cost)
 		{
-			if(total_cost + entry.cost < params->max_block_cost)
-			{
-				bool passed = true;
-				for(const auto& in : tx->inputs) {
-					if(!spent.insert(in.prev).second) {
+			bool passed = true;
+			for(const auto& in : tx->inputs) {
+				// prevent double spending
+				if(!spent.insert(in.prev).second) {
+					passed = false;
+				}
+			}
+			for(const auto& op : tx->execute) {
+				if(std::dynamic_pointer_cast<const operation::Mutate>(op)) {
+					// prevent concurrent mutation
+					if(!mutated.insert(op->address).second) {
 						passed = false;
 					}
 				}
-				for(const auto& op : tx->execute) {
-					if(std::dynamic_pointer_cast<const operation::Mutate>(op)) {
-						if(!mutated.insert(op->address).second) {
-							passed = false;
-						}
-					}
-				}
-				if(passed) {
-					block->tx_list.push_back(tx);
-					total_fees += entry.fees;
-					total_cost += entry.cost;
-				}
+			}
+			if(passed) {
+				block->tx_list.push_back(tx);
+				total_fees += entry.fees;
+				total_cost += entry.cost;
 			}
 		}
 	}
-	for(const auto& id : invalid) {
-		tx_pool.erase(id);
+
+	// purge invalid
+	while(!invalid.empty()) {
+		std::unordered_set<hash_t> more;
+		for(const auto& id : invalid) {
+			const auto range = dependency.equal_range(id);
+			for(auto iter = range.first; iter != range.second; ++iter) {
+				more.insert(iter->second);
+			}
+			tx_pool.erase(id);
+		}
+		invalid = more;
 	}
 	block->finalize();
 

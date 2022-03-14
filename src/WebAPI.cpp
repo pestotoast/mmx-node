@@ -39,7 +39,7 @@ public:
 	}
 
 	int64_t get_time(const uint32_t& height) const {
-		return int64_t(height - height_offset) * int64_t(params->block_time) + time_offset;
+		return int64_t(height - int64_t(curr_height)) * int64_t(params->block_time) + time_offset;
 	}
 
 	bool have_contract(const addr_t& address) const {
@@ -69,7 +69,7 @@ public:
 	}
 
 	int64_t time_offset = 0;		// [sec]
-	int64_t height_offset = 0;
+	uint32_t curr_height = 0;
 	std::shared_ptr<const ChainParams> params;
 	std::unordered_map<addr_t, currency_t> currency_map;
 };
@@ -117,9 +117,9 @@ void WebAPI::update()
 {
 	node->get_height(
 		[this](const uint32_t& height) {
-			if(height != height_offset) {
+			if(height != curr_height) {
 				time_offset = vnx::get_time_seconds();
-				height_offset = height;
+				curr_height = height;
 			}
 		});
 
@@ -264,7 +264,9 @@ public:
 	}
 
 	void accept(const txio_key_t& value) {
-		set(render(value, context));
+		auto tmp = render(value, context);
+		tmp["key"] = value.to_string_value();
+		set(tmp);
 	}
 
 	void accept(const tx_in_t& value) {
@@ -318,6 +320,7 @@ public:
 			tmp["cost"] = to_amount(value.cost, context->params->decimals);
 			if(auto height = value.height) {
 				tmp["time"] = context->get_time(*height);
+				tmp["confirm"] = context->curr_height >= *height ? 1 + context->curr_height - *height : 0;
 			}
 		}
 		{
@@ -561,7 +564,7 @@ std::shared_ptr<RenderContext> WebAPI::get_context() const
 {
 	auto context = std::make_shared<RenderContext>(params);
 	context->time_offset = time_offset;
-	context->height_offset = height_offset;
+	context->curr_height = curr_height;
 	return context;
 }
 
@@ -570,19 +573,33 @@ void WebAPI::render_header(const vnx::request_id_t& request_id, std::shared_ptr<
 	respond(request_id, render_value(block, get_context()));
 }
 
-void WebAPI::render_headers(const vnx::request_id_t& request_id, const size_t limit, const size_t offset,
-							std::shared_ptr<std::vector<vnx::Variant>> result, std::shared_ptr<const BlockHeader> block) const
+void WebAPI::render_headers(const vnx::request_id_t& request_id, size_t limit, const size_t offset) const
 {
-	if(block) {
-		result->push_back(render_value(block, get_context()));
-	}
-	if(result->size() >= limit) {
-		respond(request_id, vnx::Variant(*result));
+	limit = std::min(limit, offset);
+
+	struct job_t {
+		size_t num_left = 0;
+		vnx::request_id_t request_id;
+		std::vector<vnx::Variant> result;
+	};
+	auto job = std::make_shared<job_t>();
+	job->num_left = limit;
+	job->request_id = request_id;
+	job->result.resize(limit);
+
+	if(!job->num_left) {
+		respond(request_id, render_value(job->result));
 		return;
 	}
-	node->get_header_at(offset,
-			std::bind(&WebAPI::render_headers, this, request_id, limit, offset + 1, result, std::placeholders::_1),
-			std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
+	for(size_t i = 0; i < limit; ++i) {
+		node->get_header_at(offset - i,
+			[this, job, i](std::shared_ptr<const BlockHeader> block) {
+				job->result[i] = render_value(block, get_context());
+				if(--job->num_left == 0) {
+					respond(job->request_id, render_value(job->result));
+				}
+			});
+	}
 }
 
 void WebAPI::render_block(const vnx::request_id_t& request_id, std::shared_ptr<const Block> block) const
@@ -618,19 +635,33 @@ void WebAPI::render_block(const vnx::request_id_t& request_id, std::shared_ptr<c
 		});
 }
 
-void WebAPI::render_blocks(	const vnx::request_id_t& request_id, const size_t limit, const size_t offset,
-							std::shared_ptr<std::vector<vnx::Variant>> result, std::shared_ptr<const Block> block) const
+void WebAPI::render_blocks(const vnx::request_id_t& request_id, size_t limit, const size_t offset) const
 {
-	if(block) {
-		result->push_back(render_value(block, get_context()));
-	}
-	if(result->size() >= limit) {
-		respond(request_id, vnx::Variant(*result));
+	limit = std::min(limit, offset);
+
+	struct job_t {
+		size_t num_left = 0;
+		vnx::request_id_t request_id;
+		std::vector<vnx::Variant> result;
+	};
+	auto job = std::make_shared<job_t>();
+	job->num_left = limit;
+	job->request_id = request_id;
+	job->result.resize(limit);
+
+	if(!job->num_left) {
+		respond(request_id, render_value(job->result));
 		return;
 	}
-	node->get_block_at(offset,
-			std::bind(&WebAPI::render_blocks, this, request_id, limit, offset + 1, result, std::placeholders::_1),
-			std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
+	for(size_t i = 0; i < limit; ++i) {
+		node->get_block_at(offset - i,
+			[this, job, i](std::shared_ptr<const Block> block) {
+				job->result[i] = render_value(block, get_context());
+				if(--job->num_left == 0) {
+					respond(job->request_id, render_value(job->result));
+				}
+			});
+	}
 }
 
 void WebAPI::render_transaction(const vnx::request_id_t& request_id, const vnx::optional<tx_info_t>& info) const
@@ -646,35 +677,51 @@ void WebAPI::render_transaction(const vnx::request_id_t& request_id, const vnx::
 	respond(request_id, render_value(info, context));
 }
 
-void WebAPI::render_transactions(	const vnx::request_id_t& request_id, const size_t limit, const size_t offset,
-									std::shared_ptr<std::vector<vnx::Variant>> result, const std::vector<hash_t>& tx_ids,
-									const vnx::optional<tx_info_t>& info) const
+void WebAPI::render_transactions(	const vnx::request_id_t& request_id, size_t limit, const size_t offset,
+									const std::vector<hash_t>& tx_ids) const
 {
-	if(info) {
-		auto context = get_context();
-		for(const auto& entry : info->contracts) {
-			context->add_contract(entry.first, entry.second);
-		}
-		result->push_back(render_value(info, context));
-	}
-	if(result->size() >= limit || offset >= tx_ids.size()) {
-		respond(request_id, vnx::Variant(*result));
+	limit = std::min(limit, tx_ids.size() - std::min(offset, tx_ids.size()));
+
+	struct job_t {
+		size_t num_left = 0;
+		vnx::request_id_t request_id;
+		std::vector<vnx::Variant> result;
+	};
+	auto job = std::make_shared<job_t>();
+	job->num_left = limit;
+	job->request_id = request_id;
+	job->result.resize(limit);
+
+	if(!job->num_left) {
+		respond(request_id, render_value(job->result));
 		return;
 	}
-	node->get_tx_info(tx_ids[offset],
-			std::bind(&WebAPI::render_transactions, this, request_id, limit, offset + 1, result, tx_ids, std::placeholders::_1),
-			std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
+	for(size_t i = 0; i < limit; ++i) {
+		node->get_tx_info(tx_ids[offset + i],
+			[this, job, i](const vnx::optional<tx_info_t>& info) {
+				if(info) {
+					auto context = get_context();
+					for(const auto& entry : info->contracts) {
+						context->add_contract(entry.first, entry.second);
+					}
+					job->result[i] = render_value(info, context);
+				}
+				if(--job->num_left == 0) {
+					respond(job->request_id, render_value(job->result));
+				}
+			});
+	}
 }
 
-void WebAPI::gather_transactions(	const vnx::request_id_t& request_id, const size_t limit, const uint32_t height,
+void WebAPI::gather_transactions(	const vnx::request_id_t& request_id, const size_t limit, const int64_t height,
 									std::shared_ptr<std::vector<hash_t>> result, const std::vector<hash_t>& tx_ids) const
 {
 	result->insert(result->end(), tx_ids.begin(), tx_ids.end());
-	if(result->size() >= limit || height == 0) {
-		render_transactions(request_id, limit, 0, std::make_shared<std::vector<vnx::Variant>>(), *result, nullptr);
+	if(result->size() >= limit || height < 0) {
+		render_transactions(request_id, limit, 0, *result);
 		return;
 	}
-	node->get_tx_ids_at(height - 1,
+	node->get_tx_ids_at(height,
 			std::bind(&WebAPI::gather_transactions, this, request_id, limit, height - 1, result, std::placeholders::_1),
 			std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 }
@@ -757,27 +804,38 @@ void WebAPI::render_history(const vnx::request_id_t& request_id, const size_t li
 		});
 }
 
-void WebAPI::execute_trades(const std::string& server, const uint32_t index, const std::vector<exchange::matched_order_t>& orders,
-							const size_t offset, std::shared_ptr<std::vector<vnx::Object>> result, std::shared_ptr<RenderContext> context,
-							vnx::request_id_t request_id, const hash_t& txid, const vnx::exception& ex, bool is_fail) const
+void WebAPI::render_tx_history(const vnx::request_id_t& request_id, const std::vector<tx_log_entry_t>& history) const
 {
-	if(offset > 0) {
-		vnx::Object res;
-		res["id"] = txid.to_string();
-		res["order"] = render_value(orders[offset - 1], context);
-		if(is_fail) {
-			res["failed"] = true;
-			res["message"] = ex.what();
-		}
-		result->push_back(res);
-	}
-	if(offset >= orders.size()) {
-		respond(request_id, render_value(*result));
+	struct job_t {
+		size_t num_left = 0;
+		vnx::request_id_t request_id;
+		std::vector<vnx::Object> result;
+	};
+	auto job = std::make_shared<job_t>();
+	job->num_left = history.size();
+	job->request_id = request_id;
+	job->result.resize(history.size());
+
+	if(!job->num_left) {
+		respond(request_id, render_value(job->result));
 		return;
 	}
-	exch_client->execute(server, index, orders[offset],
-		std::bind(&WebAPI::execute_trades, this, server, index, orders, offset + 1, result, context, request_id, std::placeholders::_1, vnx::exception(), false),
-		std::bind(&WebAPI::execute_trades, this, server, index, orders, offset + 1, result, context, request_id, hash_t(), std::placeholders::_1, true));
+	for(size_t i = 0; i < history.size(); ++i) {
+		const auto& entry = history[i];
+		auto& out = job->result[i];
+		out["time"] = entry.time;
+		out["id"] = entry.tx->id.to_string();
+		node->get_tx_height(entry.tx->id,
+			[this, job, i](const vnx::optional<uint32_t>& height) {
+				if(height) {
+					job->result[i]["height"] = *height;
+					job->result[i]["confirm"] = curr_height >= *height ? 1 + curr_height - *height : 0;
+				}
+				if(--job->num_left == 0) {
+					respond(job->request_id, render_value(job->result));
+				}
+			});
+	}
 }
 
 void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> request, const std::string& sub_path,
@@ -821,13 +879,13 @@ void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> 
 		if(iter_limit != query.end() && iter_offset != query.end()) {
 			const size_t limit = std::max<int64_t>(std::min<int64_t>(vnx::from_string<int64_t>(iter_limit->second), 1000), 0);
 			const size_t offset = vnx::from_string<int64_t>(iter_offset->second);
-			render_headers(request_id, limit, offset, std::make_shared<std::vector<vnx::Variant>>(), nullptr);
+			render_headers(request_id, limit, offset);
 		} else if(iter_offset == query.end()) {
 			const uint32_t limit = iter_limit != query.end() ?
 					std::max<int64_t>(std::min<int64_t>(vnx::from_string<int64_t>(iter_limit->second), max_block_history), 0) : 20;
 			node->get_height(
 				[this, request_id, limit](const uint32_t& height) {
-					render_headers(request_id, limit, height - std::min(limit, height) + 1, std::make_shared<std::vector<vnx::Variant>>(), nullptr);
+					render_headers(request_id, limit, height);
 				},
 				std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 		} else {
@@ -856,13 +914,13 @@ void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> 
 		if(iter_limit != query.end() && iter_offset != query.end()) {
 			const size_t limit = std::max<int64_t>(std::min<int64_t>(vnx::from_string<int64_t>(iter_limit->second), 1000), 0);
 			const size_t offset = vnx::from_string<int64_t>(iter_offset->second);
-			render_blocks(request_id, limit, offset, std::make_shared<std::vector<vnx::Variant>>(), nullptr);
+			render_blocks(request_id, limit, offset);
 		} else if(iter_offset == query.end()) {
 			const uint32_t limit = iter_limit != query.end() ?
 					std::max<int64_t>(std::min<int64_t>(vnx::from_string<int64_t>(iter_limit->second), max_block_history), 0) : 20;
 			node->get_height(
 				[this, request_id, limit](const uint32_t& height) {
-					render_blocks(request_id, limit, height - std::min(limit, height) + 1, std::make_shared<std::vector<vnx::Variant>>(), nullptr);
+					render_blocks(request_id, limit, height);
 				},
 				std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 		} else {
@@ -887,15 +945,14 @@ void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> 
 			const size_t limit = iter_limit != query.end() ? vnx::from_string<int64_t>(iter_limit->second) : -1;
 			const size_t offset = iter_offset != query.end() ? vnx::from_string<int64_t>(iter_offset->second) : 0;
 			node->get_tx_ids_at(vnx::from_string_value<uint32_t>(iter_height->second),
-				std::bind(&WebAPI::render_transactions, this, request_id, limit, offset,
-						std::make_shared<std::vector<vnx::Variant>>(), std::placeholders::_1, nullptr),
+				std::bind(&WebAPI::render_transactions, this, request_id, limit, offset, std::placeholders::_1),
 				std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 		} else if(iter_offset == query.end()) {
 			const size_t limit = iter_limit != query.end() ?
 					std::max<int64_t>(std::min<int64_t>(vnx::from_string<int64_t>(iter_limit->second), max_tx_history), 0) : 20;
 			node->get_height(
 				[this, request_id, limit](const uint32_t& height) {
-					gather_transactions(request_id, limit, height + 1, std::make_shared<std::vector<hash_t>>(), {});
+					gather_transactions(request_id, limit, height, std::make_shared<std::vector<hash_t>>(), {});
 				},
 				std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 		} else {
@@ -1038,6 +1095,21 @@ void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> 
 			const int32_t since = iter_since != query.end() ? vnx::from_string<int64_t>(iter_since->second) : 0;
 			wallet->get_history(index, since,
 				std::bind(&WebAPI::render_history, this, request_id, limit, offset, std::placeholders::_1),
+				std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
+		} else {
+			respond_status(request_id, 404, "wallet/history?index|limit|offset|since");
+		}
+	}
+	else if(sub_path == "/wallet/tx_history") {
+		const auto iter_index = query.find("index");
+		const auto iter_limit = query.find("limit");
+		const auto iter_offset = query.find("offset");
+		if(iter_index != query.end()) {
+			const uint32_t index = vnx::from_string_value<int64_t>(iter_index->second);
+			const int32_t  limit = iter_limit != query.end() ? vnx::from_string<int32_t>(iter_limit->second) : -1;
+			const uint32_t offset = iter_offset != query.end() ? vnx::from_string<int64_t>(iter_offset->second) : 0;
+			wallet->get_tx_history(index, limit, offset,
+				std::bind(&WebAPI::render_tx_history, this, request_id, std::placeholders::_1),
 				std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 		} else {
 			respond_status(request_id, 404, "wallet/history?index|limit|offset|since");
@@ -1361,8 +1433,8 @@ void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> 
 							if(bid_info && ask_info) {
 								res["price"] = price.value / double(price.inverse) * pow(10, bid_info->decimals - ask_info->decimals);
 							}
-							if(bid_info) {
-								res["amount"] = price.inverse * pow(10, -bid_info->decimals);
+							if(ask_info) {
+								res["amount"] = price.inverse * pow(10, -ask_info->decimals);
 							}
 							respond(request_id, res);
 						},
@@ -1397,12 +1469,18 @@ void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> 
 						}
 						const auto index = args["wallet"].to<uint32_t>();
 						exch_client->make_trade(index, pair, bid_amount, ask_amount,
-							[this, request_id, args, index, context](const std::vector<exchange::trade_order_t> orders) {
+							[this, request_id, args, index, context](const exchange::trade_order_t& order) {
 								const auto server = args["server"].to_string_value();
-								exch_client->match(server, orders,
-									[this, request_id, args, server, index, context](const std::vector<exchange::matched_order_t> orders) {
-										auto result = std::make_shared<std::vector<vnx::Object>>();
-										execute_trades(server, index, orders, 0, result, context, request_id, hash_t(), {}, false);
+								exch_client->match(server, order,
+									[this, request_id, args, server, index, context](const exchange::matched_order_t& order) {
+										exch_client->execute(server, index, order,
+											[this, request_id, order, context](const hash_t& txid) {
+												vnx::Object res;
+												res["id"] = txid.to_string();
+												res["order"] = render_value(order, context);
+												respond(request_id, res);
+											},
+											std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 									},
 									std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 							},

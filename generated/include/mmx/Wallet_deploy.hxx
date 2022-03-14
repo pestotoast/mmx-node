@@ -12,7 +12,7 @@
 
 namespace mmx {
 
-class Wallet_deploy : public ::vnx::Value {
+class MMX_EXPORT Wallet_deploy : public ::vnx::Value {
 public:
 	
 	uint32_t index = 0;

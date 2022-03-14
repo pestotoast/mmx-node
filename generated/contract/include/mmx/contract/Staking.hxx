@@ -17,7 +17,7 @@
 namespace mmx {
 namespace contract {
 
-class Staking : public ::mmx::Contract {
+class MMX_CONTRACT_EXPORT Staking : public ::mmx::Contract {
 public:
 	static const uint32_t min_duration = 18;
 	
@@ -42,6 +42,7 @@ public:
 	virtual ::mmx::hash_t calc_hash() const override;
 	virtual uint64_t calc_min_fee(std::shared_ptr<const ::mmx::ChainParams> params = nullptr) const override;
 	virtual std::vector<::mmx::addr_t> get_dependency() const override;
+	virtual std::vector<::mmx::addr_t> get_parties() const override;
 	virtual vnx::optional<::mmx::addr_t> get_owner() const override;
 	virtual std::vector<::mmx::tx_out_t> validate(std::shared_ptr<const ::mmx::Operation> operation = nullptr, std::shared_ptr<const ::mmx::Context> context = nullptr) const override;
 	

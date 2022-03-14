@@ -12,7 +12,7 @@
 
 namespace mmx {
 
-struct txo_info_t {
+struct MMX_EXPORT txo_info_t {
 	
 	
 	::mmx::txio_key_t key;

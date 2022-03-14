@@ -10,7 +10,7 @@
 
 namespace mmx {
 
-class Farmer_get_mac_addr : public ::vnx::Value {
+class MMX_EXPORT Farmer_get_mac_addr : public ::vnx::Value {
 public:
 	
 	

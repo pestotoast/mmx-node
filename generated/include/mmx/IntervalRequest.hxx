@@ -11,7 +11,7 @@
 
 namespace mmx {
 
-class IntervalRequest : public ::vnx::Value {
+class MMX_EXPORT IntervalRequest : public ::vnx::Value {
 public:
 	
 	uint64_t begin = 0;

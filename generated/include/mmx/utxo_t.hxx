@@ -10,7 +10,7 @@
 
 namespace mmx {
 
-struct utxo_t : ::mmx::tx_out_t {
+struct MMX_EXPORT utxo_t : ::mmx::tx_out_t {
 	
 	
 	uint32_t height = -1;

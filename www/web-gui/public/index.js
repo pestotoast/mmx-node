@@ -24,7 +24,7 @@ const AccountHome = {
 	},
 	template: `
 		<account-balance :index="index"></account-balance>
-		<account-history :index="index" :limit="200"></account-history>
+		<account-history :index="index" :limit="50"></account-history>
 	`
 }
 const AccountNFTs = {
@@ -66,7 +66,15 @@ const AccountSend = {
 		index: Number
 	},
 	template: `
-		<account-send-form :index="index"></account-send-form>
+		<account-send-form :index="index" :target_="$route.params.target"></account-send-form>
+	`
+}
+const AccountSendFrom = {
+	props: {
+		index: Number
+	},
+	template: `
+		<account-send-form :index="index" :source_="$route.params.source"></account-send-form>
 	`
 }
 const AccountSplit = {
@@ -83,6 +91,22 @@ const AccountOffer = {
 	},
 	template: `
 		<account-offer-form :index="index"></account-offer-form>
+	`
+}
+const AccountHistory = {
+	props: {
+		index: Number
+	},
+	template: `
+		<account-history :index="index" :limit="200"></account-history>
+	`
+}
+const AccountLog = {
+	props: {
+		index: Number
+	},
+	template: `
+		<account-tx-history :index="index" :limit="200"></account-tx-history>
 	`
 }
 const AccountDetails = {
@@ -239,7 +263,22 @@ const ExchangeOffers = {
 		`
 }
 
-const Settings = { template: '<h1>Settings</h1>TODO' }
+const Explore = {
+	template: `
+		<recent-blocks-summary :limit="30"></recent-blocks-summary>
+	`
+}
+const ExploreTransaction = {
+	template: `
+		<transaction-view :id="$route.params.id"></transaction-view>
+	`
+}
+
+const Settings = {
+	template: `
+		<h3>TODO</h3>
+	`
+}
 
 const routes = [
 	{ path: '/', redirect: "/wallet" },
@@ -254,9 +293,12 @@ const routes = [
 			{ path: 'nfts', component: AccountNFTs, meta: { page: 'nfts' } },
 			{ path: 'contracts', component: AccountContracts, meta: { page: 'contracts' } },
 			{ path: 'addresses', component: AccountAddresses, meta: { page: 'addresses' } },
-			{ path: 'send', component: AccountSend, meta: { page: 'send' } },
+			{ path: 'send/:target?', component: AccountSend, meta: { page: 'send' } },
+			{ path: 'send_from/:source?', component: AccountSendFrom, meta: { page: 'send' } },
 			{ path: 'split', component: AccountSplit, meta: { page: 'split' } },
 			{ path: 'offer', component: AccountOffer, meta: { page: 'offer' } },
+			{ path: 'history', component: AccountHistory, meta: { page: 'history' } },
+			{ path: 'log', component: AccountLog, meta: { page: 'log' } },
 			{ path: 'details', component: AccountDetails, meta: { page: 'details' } },
 			{ path: 'options', component: AccountOptions, meta: { page: 'options' } },
 			{ path: 'create/staking', component: AccountCreateStaking },
@@ -279,6 +321,8 @@ const routes = [
 			{ path: 'offers/:wallet/:server/:bid/:ask', component: ExchangeOffers, meta: { page: 'offers' } },
 		]
 	},
+	{ path: '/explore', component: Explore, meta: { is_explorer: true } },
+	{ path: '/explore/transaction/:id', component: ExploreTransaction, meta: { is_explorer: true } },
 	{ path: '/settings', component: Settings },
 ]
 
@@ -294,6 +338,7 @@ app.component('main-menu', {
 		<div class="ui large top menu">
 			<div class="ui container">
 				<router-link class="item" :class="{active: $route.meta.is_wallet}" to="/wallet/">Wallet</router-link>
+				<router-link class="item" :class="{active: $route.meta.is_explorer}" to="/explore/">Explore</router-link>
 				<router-link class="item" :class="{active: $route.meta.is_exchange}" to="/exchange/">Exchange</router-link>
 				<div class="right menu">
 					<router-link class="item" to="/settings/">Settings</router-link>

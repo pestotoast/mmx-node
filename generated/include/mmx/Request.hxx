@@ -10,7 +10,7 @@
 
 namespace mmx {
 
-class Request : public ::vnx::Value {
+class MMX_EXPORT Request : public ::vnx::Value {
 public:
 	
 	uint32_t id = 0;

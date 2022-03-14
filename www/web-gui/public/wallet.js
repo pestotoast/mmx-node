@@ -2,20 +2,28 @@
 app.component('wallet-summary', {
 	data() {
 		return {
-			data: []
+			data: null,
+			loading: false
 		}
 	},
 	methods: {
 		update() {
+			this.loading = true;
 			fetch('/api/wallet/get_all_accounts')
 				.then(response => response.json())
-				.then(data => this.data = data);
+				.then(data => {
+					this.loading = false;
+					this.data = data;
+				});
 		}
 	},
 	created() {
-		this.update()
+		this.update();
 	},
 	template: `
+		<template v-if="!data && loading">
+			<div class="ui basic loading placeholder segment"></div>
+		</template>
 		<div class="ui raised segment" v-for="item in data" :key="item[0]">
 			<account-summary :index="item[0]" :account="item[1]"></account-summary>
 		</div>
@@ -38,6 +46,8 @@ app.component('account-menu', {
 			<router-link class="item" :class="{active: $route.meta.page == 'send'}" :to="'/wallet/account/' + index + '/send'">Send</router-link>
 			<router-link class="item" :class="{active: $route.meta.page == 'offer'}" :to="'/wallet/account/' + index + '/offer'">Offer</router-link>
 			<router-link class="item" :class="{active: $route.meta.page == 'split'}" :to="'/wallet/account/' + index + '/split'">Split</router-link>
+			<router-link class="item" :class="{active: $route.meta.page == 'history'}" :to="'/wallet/account/' + index + '/history'">History</router-link>
+			<router-link class="item" :class="{active: $route.meta.page == 'log'}" :to="'/wallet/account/' + index + '/log'">Log</router-link>
 			<router-link class="item" :class="{active: $route.meta.page == 'details'}" :to="'/wallet/account/' + index + '/details'">Details</router-link>
 			<router-link class="right item" :class="{active: $route.meta.page == 'options'}" :to="'/wallet/account/' + index + '/options'"><i class="cog icon"></i></router-link>
 		</div>
@@ -77,8 +87,7 @@ app.component('account-header', {
 	},
 	template: `
 		<div class="ui large labels">
-			<div class="ui horizontal label">Account #{{index}}</div>
-			<div class="ui horizontal label">[{{info.index}}] {{info.name}}</div>
+			<div class="ui horizontal label">Wallet #{{index}}</div>
 			<div class="ui horizontal label">{{address}}</div>
 		</div>
 		`
@@ -104,15 +113,20 @@ app.component('account-balance', {
 	},
 	data() {
 		return {
-			balances: [],
+			data: null,
+			loading: false,
 			timer: null
 		}
 	},
 	methods: {
 		update() {
+			this.loading = true;
 			fetch('/wapi/wallet/balance?index=' + this.index)
 				.then(response => response.json())
-				.then(data => this.balances = data.balances);
+				.then(data => {
+					this.loading = false;
+					this.data = data.balances;
+				});
 		}
 	},
 	created() {
@@ -123,7 +137,10 @@ app.component('account-balance', {
 		clearInterval(this.timer);
 	},
 	template: `
-		<table class="ui table">
+		<template v-if="!data && loading">
+			<div class="ui basic loading placeholder segment"></div>
+		</template>
+		<table class="ui table" v-if="data">
 			<thead>
 			<tr>
 				<th class="two wide">Balance</th>
@@ -135,7 +152,7 @@ app.component('account-balance', {
 			</tr>
 			</thead>
 			<tbody>
-			<tr v-for="item in balances" :key="item.contract">
+			<tr v-for="item in data" :key="item.contract">
 				<td>{{item.total}}</td>
 				<td>{{item.reserved}}</td>
 				<td><b>{{item.spendable}}</b></td>
@@ -152,10 +169,39 @@ app.component('account-balance', {
 
 app.component('balance-table', {
 	props: {
-		balances: Object
+		address: String,
+		show_empty: Boolean
+	},
+	data() {
+		return {
+			data: null,
+			loading: false,
+			timer: null
+		}
+	},
+	methods: {
+		update() {
+			this.loading = true;
+			fetch('/wapi/address?id=' + this.address)
+				.then(response => response.json())
+				.then(data => {
+					this.loading = false;
+					this.data = data.balances;
+				});
+		}
+	},
+	created() {
+		this.update();
+		this.timer = setInterval(() => { this.update(); }, 10000);
+	},
+	unmounted() {
+		clearInterval(this.timer);
 	},
 	template: `
-		<table class="ui table">
+		<template v-if="!data && loading">
+			<div class="ui basic loading placeholder segment"></div>
+		</template>
+		<table class="ui table" v-if="data && (data.length || show_empty)">
 			<thead>
 			<tr>
 				<th class="two wide">Balance</th>
@@ -164,7 +210,7 @@ app.component('balance-table', {
 			</tr>
 			</thead>
 			<tbody>
-			<tr v-for="item in balances" :key="item.contract">
+			<tr v-for="item in data" :key="item.contract">
 				<td><b>{{item.value}}</b></td>
 				<td>{{item.symbol}}</td>
 				<td>{{item.is_native ? '' : item.contract}}</td>
@@ -216,15 +262,20 @@ app.component('account-history', {
 	},
 	data() {
 		return {
-			data: [],
+			data: null,
+			loading: false,
 			timer: null
 		}
 	},
 	methods: {
 		update() {
+			this.loading = true;
 			fetch('/wapi/wallet/history?limit=' + this.limit + '&index=' + this.index)
 				.then(response => response.json())
-				.then(data => this.data = data);
+				.then(data => {
+					this.loading = false;
+					this.data = data;
+				});
 		}
 	},
 	created() {
@@ -235,7 +286,10 @@ app.component('account-history', {
 		clearInterval(this.timer);
 	},
 	template: `
-		<table class="ui table striped">
+		<template v-if="!data && loading">
+			<div class="ui basic loading placeholder segment"></div>
+		</template>
+		<table class="ui table striped" v-if="data">
 			<thead>
 			<tr>
 				<th>Height</th>
@@ -243,6 +297,7 @@ app.component('account-history', {
 				<th>Amount</th>
 				<th>Token</th>
 				<th>Address</th>
+				<th>Link</th>
 				<th>Time</th>
 			</tr>
 			</thead>
@@ -253,6 +308,7 @@ app.component('account-history', {
 				<td><b>{{item.value}}</b></td>
 				<td>{{item.symbol}}</td>
 				<td>{{item.address}}</td>
+				<td><router-link :to="'/explore/transaction/' + item.txid">TX</router-link></td>
 				<td>{{new Date(item.time * 1000).toLocaleString()}}</td>
 			</tr>
 			</tbody>
@@ -260,25 +316,74 @@ app.component('account-history', {
 		`
 })
 
-app.component('contract-summary', {
+app.component('account-tx-history', {
 	props: {
-		address: String,
-		contract: Object
+		index: Number,
+		limit: Number
 	},
 	data() {
 		return {
-			balances: []
+			data: null,
+			loading: false,
+			timer: null
 		}
 	},
 	methods: {
 		update() {
-			fetch('/wapi/address?id=' + this.address)
+			this.loading = true;
+			fetch('/wapi/wallet/tx_history?limit=' + this.limit + '&index=' + this.index)
 				.then(response => response.json())
-				.then(data => this.balances = data.balances);
+				.then(data => {
+					this.loading = false;
+					this.data = data;
+				});
 		}
 	},
 	created() {
-		this.update()
+		this.update();
+		this.timer = setInterval(() => { this.update(); }, 10000);
+	},
+	unmounted() {
+		clearInterval(this.timer);
+	},
+	template: `
+		<template v-if="!data && loading">
+			<div class="ui basic loading placeholder segment"></div>
+		</template>
+		<table class="ui table striped" v-if="data">
+			<thead>
+			<tr>
+				<th>Height</th>
+				<th>Confirmed</th>
+				<th>Transaction ID</th>
+				<th>Time</th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr v-for="item in data" :key="item.txid">
+				<td>{{item.height ? item.height : "pending"}}</td>
+				<td>{{item.confirm ? item.confirm : 0}}</td>
+				<td><router-link :to="'/explore/transaction/' + item.id">{{item.id}}</router-link></td>
+				<td>{{new Date(item.time).toLocaleString()}}</td>
+			</tr>
+			</tbody>
+		</table>
+		`
+})
+
+app.component('account-contract-summary', {
+	props: {
+		index: Number,
+		address: String,
+		contract: Object
+	},
+	methods: {
+		deposit() {
+			this.$router.push("/wallet/account/" + this.index + "/send/" + this.address);
+		},
+		withdraw() {
+			this.$router.push("/wallet/account/" + this.index + "/send_from/" + this.address);
+		}
 	},
 	template: `
 		<div class="ui raised segment">
@@ -286,17 +391,10 @@ app.component('contract-summary', {
 				<div class="ui horizontal label">{{contract.__type}}</div>
 				<div class="ui horizontal label">{{address}}</div>
 			</div>
-			<table class="ui definition table striped">
-				<tbody>
-				<template v-for="(value, key) in contract" :key="key">
-					<tr v-if="key != '__type'">
-						<td class="collapsing">{{key}}</td>
-						<td>{{value}}</td>
-					</tr>
-				</template>
-				</tbody>
-			</table>
-			<balance-table :balances="balances" v-if="balances.length"></balance-table>
+			<contract-table :data="contract"></contract-table>
+			<balance-table :address="address"></balance-table>
+			<div @click="deposit" class="ui submit button">Deposit</div>
+			<div @click="withdraw" class="ui submit button">Withdraw</div>
 		</div>
 		`
 })
@@ -307,21 +405,31 @@ app.component('account-contracts', {
 	},
 	data() {
 		return {
-			data: []
+			data: null,
+			loading: false
 		}
 	},
 	methods: {
 		update() {
+			this.loading = true;
 			fetch('/wapi/wallet/contracts?index=' + this.index)
 				.then(response => response.json())
-				.then(data => this.data = data);
+				.then(data => {
+					this.loading = false;
+					this.data = data;
+				});
 		}
 	},
 	created() {
-		this.update()
+		this.update();
 	},
 	template: `
-		<contract-summary v-for="item in data" :key="item[0]" :address="item[0]" :contract="item[1]"></contract-summary>
+		<template v-if="!data && loading">
+			<div class="ui basic loading placeholder segment"></div>
+		</template>
+		<template v-if="data">
+			<account-contract-summary v-for="item in data" :key="item[0]" :index="index" :address="item[0]" :contract="item[1]"></account-contract-summary>
+		</template>
 		`
 })
 
@@ -346,7 +454,7 @@ app.component('account-addresses', {
 		this.update()
 	},
 	template: `
-		<table class="ui table striped">
+		<table class="ui definition table striped">
 			<thead>
 			<tr>
 				<th>Index</th>
@@ -355,7 +463,7 @@ app.component('account-addresses', {
 			</thead>
 			<tbody>
 			<tr v-for="(item, index) in data" :key="index">
-				<td><b>{{index}}</b></td>
+				<td>{{index}}</td>
 				<td>{{item}}</td>
 			</tr>
 			</tbody>
@@ -396,7 +504,7 @@ app.component('account-coins', {
 			</thead>
 			<tbody>
 			<tr v-for="item in data" :key="item.key">
-				<td>{{item.output.height}}</td>
+				<td>{{item.output.height == 4294967295 ? "pending" : item.output.height}}</td>
 				<td class="collapsing"><b>{{item.output.value}}</b></td>
 				<td>{{item.output.symbol}}</td>
 				<td>{{item.output.address}}</td>
@@ -560,7 +668,9 @@ app.component('create-wallet', {
 
 app.component('account-send-form', {
 	props: {
-		index: Number
+		index: Number,
+		target_: String,
+		source_: String
 	},
 	data() {
 		return {
@@ -568,6 +678,7 @@ app.component('account-send-form', {
 			balances: [],
 			amount: null,
 			target: null,
+			source: null,
 			address: "",
 			currency: null,
 			confirmed: false,
@@ -595,9 +706,15 @@ app.component('account-send-form', {
 							});
 					}
 				});
-			fetch('/wapi/wallet/balance?index=' + this.index)
-				.then(response => response.json())
-				.then(data => this.balances = data.balances);
+			if(this.source) {
+				fetch('/wapi/address?id=' + this.source)
+					.then(response => response.json())
+					.then(data => this.balances = data.balances);
+			} else {
+				fetch('/wapi/wallet/balance?index=' + this.index)
+					.then(response => response.json())
+					.then(data => this.balances = data.balances);
+			}
 		},
 		submit() {
 			this.confirmed = false;
@@ -605,6 +722,9 @@ app.component('account-send-form', {
 			req.index = this.index;
 			req.amount = this.amount;
 			req.currency = this.currency;
+			if(this.source) {
+				req.src_addr = this.source;
+			}
 			req.dst_addr = this.target;
 			req.options = this.options;
 			fetch('/wapi/wallet/send', {body: JSON.stringify(req), method: "post"})
@@ -620,10 +740,18 @@ app.component('account-send-form', {
 					}
 					this.update();
 					this.$refs.balance.update();
+					this.$refs.history.update();
 				});
 		}
 	},
 	created() {
+		if(this.source_) {
+			this.source = this.source_;
+		}
+		if(this.target_) {
+			this.address = "";
+			this.target = this.target_;
+		}
 		this.update();
 	},
 	mounted() {
@@ -652,22 +780,27 @@ app.component('account-send-form', {
 		}
 	},
 	template: `
-		<account-balance :index="index" ref="balance"></account-balance>
+		<balance-table :address="source" :show_empty="true" v-if="source" ref="balance"></balance-table>
+		<account-balance :index="index" v-if="!source" ref="balance"></account-balance>
 		<div class="ui raised segment">
 			<form class="ui form">
+				<div class="field" v-if="!!source">
+					<label>Source Address</label>
+					<input type="text" v-model="source" disabled/>
+				</div>
 				<div class="field">
 					<label>Destination</label>
-					<select v-model="address">
+					<select v-model="address" :disabled="!!target_">
 						<option value="">Address Input</option>
 						<option v-for="item in accounts" :key="item.account" :value="item.address">
-							Account #{{item.account}} ([{{item.index}}] {{item.name}}) ({{item.address}})
+							Wallet #{{item.account}} ({{item.address}})
 						</option>
 					</select>
 				</div>
 				<div class="two fields">
 					<div class="fourteen wide field">
 						<label>Destination Address</label>
-						<input type="text" v-model="target" :disabled="!!address" placeholder="mmx1..."/>
+						<input type="text" v-model="target" :disabled="!!address || !!target_" placeholder="mmx1..."/>
 					</div>
 					<div class="two wide field">
 						<label>Output Split</label>
@@ -697,12 +830,13 @@ app.component('account-send-form', {
 				<div @click="submit" class="ui submit primary button" :class="{disabled: !confirmed}">Send</div>
 			</form>
 		</div>
-		<div class="ui large message" :class="{hidden: !result}">
-			Transaction has been sent: <b>{{result}}</b>
+		<div class="ui message" :class="{hidden: !result}">
+			Transaction has been sent: <router-link :to="'/explore/transaction/' + result">{{result}}</router-link>
 		</div>
 		<div class="ui large negative message" :class="{hidden: !error}">
 			Failed with: <b>{{error}}</b>
 		</div>
+		<account-tx-history :index="index" :limit="10" ref="history"></account-tx-history>
 		`
 })
 
@@ -749,6 +883,7 @@ app.component('account-split-form', {
 					}
 					this.update();
 					this.$refs.balance.update();
+					this.$refs.history.update();
 				});
 		}
 	},
@@ -800,12 +935,13 @@ app.component('account-split-form', {
 				<div @click="submit" class="ui submit primary button" :class="{disabled: !confirmed}">Send</div>
 			</form>
 		</div>
-		<div class="ui large message" :class="{hidden: !result}">
-			Transaction has been sent: <b>{{result}}</b>
+		<div class="ui message" :class="{hidden: !result}">
+			Transaction has been sent: <router-link :to="'/explore/transaction/' + result">{{result}}</router-link>
 		</div>
-		<div class="ui large negative message" :class="{hidden: !error}">
+		<div class="ui negative message" :class="{hidden: !error}">
 			Failed with: <b>{{error}}</b>
 		</div>
+		<account-tx-history :index="index" :limit="10" ref="history"></account-tx-history>
 		`
 })
 
@@ -965,7 +1101,7 @@ app.component('account-offer-form', {
 				<div @click="submit" class="ui submit primary button" :class="{disabled: !confirmed}">Offer</div>
 			</form>
 		</div>
-		<div class="ui large message" :class="{hidden: !result}">
+		<div class="ui message" :class="{hidden: !result}">
 			<template v-if="result">
 				[<b>{{result.id}}</b>] Offering <b>{{result.bid_value}}</b> [{{result.bid_symbol}}] for <b>{{result.ask_value}}</b> [{{result.ask_symbol}}]
 			</template>
@@ -1212,7 +1348,7 @@ app.component('create-staking-contract', {
 				<div @click="submit" class="ui submit primary button" :class="{disabled: !confirmed}">Deploy</div>
 			</form>
 		</div>
-		<div class="ui large message" :class="{hidden: !result}">
+		<div class="ui message" :class="{hidden: !result}">
 			<template v-if="result">
 				Deployed as: <b>{{result}}</b>
 			</template>

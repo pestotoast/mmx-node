@@ -12,10 +12,10 @@
 namespace mmx {
 namespace exchange {
 
-class Client_match_return : public ::vnx::Value {
+class MMX_EXCHANGE_EXPORT Client_match_return : public ::vnx::Value {
 public:
 	
-	std::vector<::mmx::exchange::matched_order_t> _ret_0;
+	::mmx::exchange::matched_order_t _ret_0;
 	
 	typedef ::vnx::Value Super;
 	
