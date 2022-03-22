@@ -49,21 +49,21 @@ void show_history(const std::vector<mmx::tx_entry_t>& history, mmx::NodeClient& 
 {
 	for(const auto& entry : history) {
 		std::cout << "[" << entry.height << "] ";
+		std::string arrow = "->";
 		switch(entry.type) {
-			case mmx::tx_type_e::SEND:    std::cout << "SEND    - "; break;
-			case mmx::tx_type_e::SPEND:   std::cout << "SPEND   - "; break;
-			case mmx::tx_type_e::INPUT:   std::cout << "INPUT   + "; break;
+			case mmx::tx_type_e::SPEND:   std::cout << "SPEND   - "; arrow = "<-"; break;
 			case mmx::tx_type_e::RECEIVE: std::cout << "RECEIVE + "; break;
 			case mmx::tx_type_e::REWARD:  std::cout << "REWARD  + "; break;
 			default: std::cout << "????    "; break;
 		}
 		const auto contract = get_contract(node, entry.contract);
 		if(auto nft = std::dynamic_pointer_cast<const mmx::contract::NFT>(contract)) {
-			std::cout << entry.contract << " -> " << entry.address << std::endl;
+			std::cout << entry.contract << " " << arrow << " " << entry.address << " (" << entry.txid << ")" << std::endl;
 		} else {
 			const auto token = std::dynamic_pointer_cast<const mmx::contract::Token>(contract);
 			const auto decimals = token ? token->decimals : params->decimals;
-			std::cout << entry.amount / pow(10, decimals) << " " << (token ? token->symbol : "MMX") << " (" << entry.amount << ") -> " << entry.address << std::endl;
+			std::cout << entry.amount / pow(10, decimals) << " " << (token ? token->symbol : "MMX")
+					<< " (" << entry.amount << ") " << arrow << " " << entry.address << " (" << entry.txid << ")" << std::endl;
 		}
 	}
 }
@@ -72,6 +72,11 @@ void show_history(const std::vector<mmx::tx_entry_t>& history, mmx::NodeClient& 
 int main(int argc, char** argv)
 {
 	mmx::secp256k1_init();
+
+	std::string mmx_home;
+	if(auto path = ::getenv("MMX_HOME")) {
+		mmx_home = path;
+	}
 
 	std::map<std::string, std::string> options;
 	options["n"] = "node";
@@ -377,8 +382,22 @@ int main(int argc, char** argv)
 					goto failed;
 				}
 				const auto txid = wallet.deploy(index, payload);
-				std::cout << "Deployed " << payload->get_type_name() << " as " << mmx::addr_t(txid) << std::endl;
+				std::cout << "Deployed " << payload->get_type_name() << " as [" << mmx::addr_t(txid) << "]" << std::endl;
 				std::cout << "Transaction ID: " << txid << std::endl;
+			}
+			else if(command == "exec")
+			{
+				std::string method;
+				vnx::Object args;
+				vnx::read_config("$3", method);
+				vnx::read_config("$4", args);
+
+				args["__type"] = method;
+				const auto txid = wallet.execute(index, contract, args);
+				std::cout << "Executed " << method << " on [" << contract << "] with:" << std::endl;
+				vnx::PrettyPrinter printer(std::cout);
+				args.accept(printer);
+				std::cout << std::endl << "Transaction ID: " << txid << std::endl;
 			}
 			else if(command == "log")
 			{
@@ -392,8 +411,10 @@ int main(int argc, char** argv)
 				if(file_name.empty()) {
 					file_name = "wallet.dat";
 				}
+				file_name = mmx_home + file_name;
+
 				if(vnx::File(file_name).exists()) {
-					vnx::log_error() << "Wallet file '" << file_name << "' already exists";
+					vnx::log_error() << "Wallet file '" << file_name << "' already exists!";
 					goto failed;
 				}
 				std::string seed_str;
@@ -416,7 +437,7 @@ int main(int argc, char** argv)
 						<< std::endl << wallet.seed_value << std::endl;
 			}
 			else {
-				std::cerr << "Help: mmx wallet [show | log | send | send_from | transfer | mint | deploy | create | accounts]" << std::endl;
+				std::cerr << "Help: mmx wallet [show | log | send | send_from | transfer | mint | deploy | exec | create | accounts | keys]" << std::endl;
 			}
 		}
 		else if(module == "node")
