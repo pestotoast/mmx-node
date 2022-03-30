@@ -32,6 +32,9 @@ std::shared_ptr<Block> Node::validate(std::shared_ptr<const Block> block) const
 	if(block->time_diff == 0 || block->space_diff == 0) {
 		throw std::logic_error("invalid difficulty");
 	}
+	if(block->tx_count != block->tx_list.size()) {
+		throw std::logic_error("invalid tx_count");
+	}
 	if(auto proof = block->proof) {
 		if(!block->farmer_sig || !block->farmer_sig->verify(proof->farmer_key, block->hash)) {
 			throw std::logic_error("invalid farmer signature");
@@ -39,12 +42,19 @@ std::shared_ptr<Block> Node::validate(std::shared_ptr<const Block> block) const
 		validate_diff_adjust(block->time_diff, prev->time_diff);
 		validate_diff_adjust(block->space_diff, prev->space_diff);
 	} else {
+		if(block->version != 0) {
+			throw std::logic_error("invalid dummy block version");
+		}
 		if(block->tx_base || !block->tx_list.empty()) {
 			throw std::logic_error("transactions not allowed");
 		}
 		if(block->time_diff != prev->time_diff || block->space_diff != prev->space_diff) {
-			throw std::logic_error("invalid difficulty adjustment");
+			throw std::logic_error("invalid difficulty adjustment for dummy block");
 		}
+		// TODO
+//		if(block->nonce) {
+//			throw std::logic_error("invalid block nonce for dummy block");
+//		}
 	}
 	auto context = Context::create();
 	context->height = block->height;
@@ -52,20 +62,35 @@ std::shared_ptr<Block> Node::validate(std::shared_ptr<const Block> block) const
 	uint64_t base_spent = 0;
 	if(auto tx = std::dynamic_pointer_cast<const Transaction>(block->tx_base)) {
 		if(validate(tx, context, block, base_spent)) {
-			throw std::logic_error("missing exec_outputs");
+			throw std::logic_error("invalid tx_base");
 		}
 	}
 	{
-		std::unordered_set<txio_key_t> inputs;
+		std::unordered_set<txio_key_t> spent;
+		std::unordered_set<addr_t> mutated;
+
 		for(const auto& base : block->tx_list) {
 			if(auto tx = std::dynamic_pointer_cast<const Transaction>(base)) {
 				for(const auto& in : tx->inputs) {
-					if(!inputs.insert(in.prev).second) {
+					if(!spent.insert(in.prev).second) {
 						throw std::logic_error("double spend");
 					}
 				}
+				{
+					std::unordered_set<addr_t> addr_set;
+					for(const auto& op : tx->execute) {
+						if(std::dynamic_pointer_cast<const operation::Mutate>(op)) {
+							addr_set.insert(op->address);
+						}
+					}
+					for(const auto& addr : addr_set) {
+						if(!mutated.insert(addr).second) {
+							throw std::logic_error("concurrent mutation");
+						}
+					}
+				}
 			} else {
-				throw std::logic_error("transaction missing");
+				throw std::logic_error("missing transaction");
 			}
 		}
 	}
@@ -75,7 +100,7 @@ std::shared_ptr<Block> Node::validate(std::shared_ptr<const Block> block) const
 	std::atomic<uint64_t> total_cost {0};
 
 #pragma omp parallel for
-	for(size_t i = 0; i < out->tx_list.size(); ++i)
+	for(int i = 0; i < int(out->tx_list.size()); ++i)
 	{
 		auto& base = out->tx_list[i];
 		try {

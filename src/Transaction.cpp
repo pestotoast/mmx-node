@@ -61,6 +61,7 @@ hash_t Transaction::calc_hash() const
 	write_bytes(out, get_type_hash());
 	write_bytes(out, version);
 	write_bytes(out, nonce);
+	// TODO: write_bytes(out, note);
 	write_bytes(out, salt);
 
 	for(const auto& tx : inputs) {
@@ -150,6 +151,7 @@ uint64_t Transaction::calc_cost(std::shared_ptr<const ChainParams> params) const
 	for(const auto& sol : solutions) {
 		if(sol) {
 			fee += params->min_txfee_sign;
+			// TODO: fee += sol->calc_cost(params);
 		}
 	}
 	if(deploy) {
@@ -161,10 +163,13 @@ uint64_t Transaction::calc_cost(std::shared_ptr<const ChainParams> params) const
 void Transaction::merge_sign(std::shared_ptr<const Transaction> tx)
 {
 	std::unordered_map<uint32_t, uint32_t> import_map;
-	for(size_t i = 0; i < inputs.size() && i < tx->inputs.size(); ++i) {
+	for(size_t i = 0; i < inputs.size() && i < tx->inputs.size(); ++i)
+	{
 		auto& our = inputs[i];
 		const auto& other = tx->inputs[i];
-		if(other.solution < tx->solutions.size() && our.solution >= solutions.size()) {
+
+		if(other.solution < tx->solutions.size() && our.solution >= solutions.size())
+		{
 			auto iter = import_map.find(other.solution);
 			if(iter != import_map.end()) {
 				our.solution = iter->second;

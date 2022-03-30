@@ -252,7 +252,8 @@ public:
 			}
 			tx_fees = tx->calc_cost(params)
 					+ params->min_txfee_io	// for change output
-					+ used_addr.size() * params->min_txfee_sign;
+					+ used_addr.size() * params->min_txfee_sign
+					+ options.extra_fee;
 
 			for(const auto& entry : used_addr) {
 				tx_fees += entry.second;	// execution fees
@@ -403,6 +404,7 @@ public:
 			throw std::logic_error("dst_addr cannot be zero");
 		}
 		auto tx = Transaction::create();
+		tx->note = tx_note_e::TRANSFER;
 		tx->add_output(currency, dst_addr, amount, options.split_output);
 		complete(tx, utxo_cache, options);
 		return tx;
@@ -418,6 +420,7 @@ public:
 			throw std::logic_error("dst_addr cannot be zero");
 		}
 		auto tx = Transaction::create();
+		tx->note = tx_note_e::WITHDRAW;
 		tx->add_output(currency, dst_addr, amount, options.split_output);
 
 		auto options_ = options;
@@ -438,6 +441,7 @@ public:
 			throw std::logic_error("dst_addr cannot be zero");
 		}
 		auto tx = Transaction::create();
+		tx->note = tx_note_e::MINT;
 
 		auto op = operation::Mint::create();
 		op->amount = amount;
@@ -461,6 +465,7 @@ public:
 			throw std::logic_error("invalid contract");
 		}
 		auto tx = Transaction::create();
+		tx->note = tx_note_e::DEPLOY;
 		tx->deploy = contract;
 
 		complete(tx, utxo_cache, options);

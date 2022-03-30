@@ -1,5 +1,50 @@
 
-app.component('recent-blocks-summary', {
+app.component('explore-menu', {
+	data() {
+		return {
+			input: null,
+			error: null
+		}
+	},
+	methods: {
+		submit() {
+			const hex = /[0-9A-Fa-f]{8}/g;
+			if(this.input) {
+				this.error = null;
+				if(this.input.startsWith("mmx1")) {
+					this.$router.push("/explore/address/" + this.input);
+				}
+				else if(hex.test(this.input)) {
+					if(this.input.length == 64) {
+						this.$router.push("/explore/transaction/" + this.input);
+					} else {
+						this.error = true;
+					}
+				}
+				else if(parseInt(this.input) != NaN) {
+					this.$router.push("/explore/block/height/" + this.input);
+				}
+				else {
+					this.error = true;
+				}
+			}
+		}
+	},
+	template: `
+		<div class="ui large pointing menu">
+			<router-link class="item" :class="{active: $route.meta.page == 'blocks'}" to="/explore/blocks">Blocks</router-link>
+			<router-link class="item" :class="{active: $route.meta.page == 'transactions'}" to="/explore/transactions">Transactions</router-link>
+			<div class="item" style="flex-grow:1;">
+				<div class="ui transparent icon input" :class="{error: !!error}">
+					<input type="text" v-model="input" v-on:keyup.enter="submit" placeholder="address | transaction id | block height">
+					<i class="search link icon" @click="submit"></i>
+				</div>
+			</div>
+		</div>
+	`
+})
+
+app.component('explore-blocks', {
 	props: {
 		limit: Number
 	},
@@ -55,7 +100,7 @@ app.component('recent-blocks-summary', {
 			</tr>
 			</thead>
 			<tbody>
-			<tr v-for="item in data" :key="item.key">
+			<tr v-for="item in data" :key="item.hash">
 				<td><router-link :to="'/explore/block/height/' + item.height">{{item.height}}</router-link></td>
 				<td>{{item.tx_count}}</td>
 				<td>{{item.proof ? item.proof.ksize : ""}}</td>
@@ -64,6 +109,66 @@ app.component('recent-blocks-summary', {
 				<td>{{item.time_diff}}</td>
 				<td>{{item.space_diff}}</td>
 				<td><router-link :to="'/explore/block/hash/' + item.hash">{{item.hash}}</router-link></td>
+			</tr>
+			</tbody>
+		</table>
+		`
+})
+
+app.component('explore-transactions', {
+	props: {
+		limit: Number
+	},
+	data() {
+		return {
+			data: null,
+			timer: null,
+			loading: false
+		}
+	},
+	methods: {
+		update() {
+			this.loading = true;
+			fetch('/wapi/transactions?limit=' + this.limit)
+				.then(response => response.json())
+				.then(data => {
+					this.loading = false;
+					this.data = data;
+				});
+		}
+	},
+	created() {
+		this.update();
+		this.timer = setInterval(() => { this.update(); }, 10000);
+	},
+	unmounted() {
+		clearInterval(this.timer);
+	},
+	template: `
+		<template v-if="!data && loading">
+			<div class="ui basic loading placeholder segment"></div>
+		</template>
+		<table class="ui table striped" v-if="data">
+			<thead>
+			<tr>
+				<th>Height</th>
+				<th>Type</th>
+				<th>Fee</th>
+				<th>N(in)</th>
+				<th>N(out)</th>
+				<th>N(op)</th>
+				<th>Transaction ID</th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr v-for="item in data" :key="item.id">
+				<td><router-link :to="'/explore/block/height/' + item.height">{{item.height}}</router-link></td>
+				<td>{{item.note ? item.note : ""}}</td>
+				<td><b>{{item.fee.value}}</b></td>
+				<td>{{item.inputs.length}}</td>
+				<td>{{item.outputs.length}}</td>
+				<td>{{item.operations.length}}</td>
+				<td><router-link :to="'/explore/transaction/' + item.id">{{item.id}}</router-link></td>
 			</tr>
 			</tbody>
 		</table>
@@ -270,6 +375,9 @@ app.component('transaction-view', {
 						if(response.ok) {
 							response.json()
 								.then(data => {
+									for(const op of data.operations) {
+										delete op.solution;
+									}
 									this.loading = false;
 									this.data = data;
 								});

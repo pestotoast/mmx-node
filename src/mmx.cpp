@@ -477,12 +477,12 @@ int main(int argc, char** argv)
 				const auto info = node.get_network_info();
 				std::cout << "Synced:   " << (node.get_synced_height() ? "Yes" : "No") << std::endl;
 				std::cout << "Height:   " << info->height << std::endl;
-				std::cout << "Netspace: " << info->total_space / pow(1024, 4) << " TiB" << std::endl;
+				std::cout << "Netspace: " << info->total_space / pow(1000, 5) << " PB" << std::endl;
 				std::cout << "Reward:   " << info->block_reward / 1e6 << " MMX" << std::endl;
 				std::cout << "Supply:   " << info->total_supply / 1e6 << " MMX" << std::endl;
 				std::cout << "N(UTXO):    " << info->utxo_count << std::endl;
 				std::cout << "N(Address): " << info->address_count << std::endl;
-				for(uint32_t i = 0; i < 2 * params->finality_delay && i < info->height; ++i) {
+				for(uint32_t i = 0; i < 10 && i < info->height; ++i) {
 					const auto hash = node.get_block_hash(info->height - i);
 					std::cout << "Block[" << (info->height - i) << "] " << (hash ? *hash : mmx::hash_t()) << std::endl;
 				}
@@ -749,7 +749,7 @@ int main(int argc, char** argv)
 
 			if(command == "info")
 			{
-				std::cout << "Total space: " << info->total_bytes / pow(1024, 4) << " TiB" << std::endl;
+				std::cout << "Total space: " << info->total_bytes / pow(1000, 4) << " TB" << std::endl;
 				for(const auto& entry : info->plot_count) {
 					std::cout << "K" << int(entry.first) << ": " << entry.second << " plots" << std::endl;
 				}
@@ -876,12 +876,16 @@ int main(int argc, char** argv)
 					vnx::log_error() << "Invalid bid amount! (-b)";
 					goto failed;
 				}
-				auto trade = client.make_trade(index, pair, bid, ask > 0 ? vnx::optional<uint64_t>(ask) : nullptr);
+				vnx::optional<uint64_t> trade_ask;
+				if(ask > 0) {
+					trade_ask = ask;
+				}
+				auto trade = client.make_trade(index, pair, bid, trade_ask);
 				std::cout << "Server: " << server << std::endl;
 				std::cout << "Total Bid: " << trade.bid / bid_factor << " (" << trade.bid << ") " << bid_symbol << std::endl;
-				if(ask > 0) {
-					std::cout << "Total Ask: " << trade.ask / ask_factor << " (" << trade.ask << ") " << ask_symbol << std::endl;
-					std::cout << "Price: " << bid / double(ask) << " " << bid_symbol << " / " << ask_symbol << std::endl;
+				if(trade.ask) {
+					std::cout << "Total Ask: " << *trade.ask / ask_factor << " (" << *trade.ask << ") " << ask_symbol << std::endl;
+					std::cout << "Price: " << *trade.ask / double(trade.bid) << " " << ask_symbol << " / " << bid_symbol << std::endl;
 				}
 				bool accepted = pre_accept;
 				if(!accepted) {
@@ -897,7 +901,7 @@ int main(int argc, char** argv)
 				if(accepted) {
 					const auto matched = client.match(server, trade);
 					std::cout << "Matched: " << matched.ask / ask_factor << " " << ask_symbol << " for " << matched.bid / bid_factor
-							<< " " << bid_symbol << " [" << double(matched.bid) / matched.ask << " " << bid_symbol << " / " << ask_symbol << "]" << std::endl;
+							<< " " << bid_symbol << " [" << double(matched.ask) / matched.bid << " " << ask_symbol << " / " << bid_symbol << "]" << std::endl;
 
 					bool accepted = pre_accept;
 					if(!accepted) {

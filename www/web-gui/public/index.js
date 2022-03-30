@@ -283,7 +283,18 @@ const ExchangeOffers = {
 
 const Explore = {
 	template: `
-		<recent-blocks-summary :limit="30"></recent-blocks-summary>
+		<explore-menu></explore-menu>
+		<router-view></router-view>
+	`
+}
+const ExploreBlocks = {
+	template: `
+		<explore-blocks :limit="100"></explore-blocks>
+	`
+}
+const ExploreTransactions = {
+	template: `
+		<explore-transactions :limit="100"></explore-transactions>
 	`
 }
 const ExploreBlock = {
@@ -302,6 +313,39 @@ const ExploreTransaction = {
 	`
 }
 
+const Node = {
+	template: `
+		<node-info></node-info>
+		<node-menu></node-menu>
+		<router-view></router-view>
+	`
+}
+const NodeBlocks = {
+	template: `
+		<explore-blocks :limit="10"></explore-blocks>
+	`
+}
+const NodePeers = {
+	template: `
+		<node-peers></node-peers>
+	`
+}
+const NodeNetspace = {
+	template: `
+		<netspace-graph :limit="1000" :step="90"></netspace-graph>
+	`
+}
+const NodeVDFSpeed = {
+	template: `
+		<vdf-speed-graph :limit="1000" :step="90"></vdf-speed-graph>
+	`
+}
+const NodeBlockReward = {
+	template: `
+		<block-reward-graph :limit="1000" :step="90"></block-reward-graph>
+	`
+}
+
 const Settings = {
 	template: `
 		<h3>TODO</h3>
@@ -309,7 +353,7 @@ const Settings = {
 }
 
 const routes = [
-	{ path: '/', redirect: "/wallet" },
+	{ path: '/', redirect: "/node" },
 	{ path: '/wallet', component: Wallet, meta: { is_wallet: true } },
 	{ path: '/wallet/create', component: WalletCreate, meta: { is_wallet: true } },
 	{ path: '/wallet/account/:index',
@@ -350,13 +394,33 @@ const routes = [
 			{ path: 'offers/:wallet/:server/:bid/:ask', component: ExchangeOffers, meta: { page: 'offers' } },
 		]
 	},
-	{ path: '/explore', component: Explore, meta: { is_explorer: true } },
-	{ path: '/explore/block/hash/:hash', component: ExploreBlock, meta: { is_explorer: true } },
-	{ path: '/explore/block/height/:height', component: ExploreBlock, meta: { is_explorer: true } },
-	{ path: '/explore/address/:address', component: ExploreAddress, meta: { is_explorer: true } },
-	{ path: '/explore/transaction/:id', component: ExploreTransaction, meta: { is_explorer: true } },
-	{ path: '/explore/address/coins/:address/:currency', component: AddressCoins, meta: { is_explorer: true },
-		props: route => ({address: route.params.address, currency: route.params.currency})
+	{ path: '/explore',
+		component: Explore,
+		redirect: "/explore/blocks",
+		meta: { is_explorer: true },
+		children: [
+			{ path: 'blocks', component: ExploreBlocks, meta: { page: 'blocks' } },
+			{ path: 'transactions', component: ExploreTransactions, meta: { page: 'transactions' } },
+			{ path: 'block/hash/:hash', component: ExploreBlock, meta: { page: 'block' } },
+			{ path: 'block/height/:height', component: ExploreBlock, meta: { page: 'block' } },
+			{ path: 'address/:address', component: ExploreAddress, meta: { page: 'address' } },
+			{ path: 'transaction/:id', component: ExploreTransaction, meta: { page: 'transaction' } },
+			{ path: 'address/coins/:address/:currency', component: AddressCoins, meta: { page: 'address_coins' },
+				props: route => ({address: route.params.address, currency: route.params.currency})
+			},
+		]
+	},
+	{ path: '/node',
+		component: Node,
+		redirect: "/node/peers",
+		meta: { is_node: true },
+		children: [
+			{ path: 'peers', component: NodePeers, meta: { page: 'peers' } },
+			{ path: 'blocks', component: NodeBlocks, meta: { page: 'blocks' } },
+			{ path: 'netspace', component: NodeNetspace, meta: { page: 'netspace' } },
+			{ path: 'vdf_speed', component: NodeVDFSpeed, meta: { page: 'vdf_speed' } },
+			{ path: 'reward', component: NodeBlockReward, meta: { page: 'reward' } },
+		]
 	},
 	{ path: '/settings', component: Settings },
 ]
@@ -372,6 +436,7 @@ app.component('main-menu', {
 	template: `
 		<div class="ui large top menu">
 			<div class="ui container">
+				<router-link class="item" :class="{active: $route.meta.is_node}" to="/node/">Node</router-link>
 				<router-link class="item" :class="{active: $route.meta.is_wallet}" to="/wallet/">Wallet</router-link>
 				<router-link class="item" :class="{active: $route.meta.is_explorer}" to="/explore/">Explore</router-link>
 				<router-link class="item" :class="{active: $route.meta.is_exchange}" to="/exchange/">Exchange</router-link>

@@ -20,6 +20,7 @@
 #include <mmx/contract/PuzzleLock.hxx>
 #include <mmx/operation/Mint.hxx>
 #include <mmx/operation/Spend.hxx>
+#include <mmx/operation/Mutate.hxx>
 #include <mmx/solution/PubKey.hxx>
 #include <mmx/solution/MultiSig.hxx>
 #include <mmx/exchange/trade_pair_t.hpp>
@@ -385,6 +386,8 @@ public:
 			set(render(value, context));
 		} else if(auto value = std::dynamic_pointer_cast<const operation::Spend>(base)) {
 			set(render(value, context));
+		} else if(auto value = std::dynamic_pointer_cast<const operation::Mutate>(base)) {
+			set(render(value, context));
 		} else {
 			set(base);
 		}
@@ -617,6 +620,53 @@ void WebAPI::render_headers(const vnx::request_id_t& request_id, size_t limit, c
 		node->get_header_at(offset - i,
 			[this, job, i](std::shared_ptr<const BlockHeader> block) {
 				job->result[i] = render_value(block, get_context());
+				if(--job->num_left == 0) {
+					respond(job->request_id, render_value(job->result));
+				}
+			});
+	}
+}
+
+void WebAPI::render_block_graph(const vnx::request_id_t& request_id, size_t limit, const size_t step, const uint32_t height) const
+{
+	limit = std::min(limit, (height + step - 1) / step);
+
+	struct job_t {
+		size_t num_left = 0;
+		vnx::request_id_t request_id;
+		std::vector<vnx::Object> result;
+	};
+	auto job = std::make_shared<job_t>();
+	job->num_left = limit;
+	job->request_id = request_id;
+	job->result.resize(limit);
+
+	if(!job->num_left) {
+		respond(request_id, render_value(job->result));
+		return;
+	}
+	for(size_t i = 0; i < limit; ++i) {
+		node->get_header_at(height - i * step,
+			[this, job, i](std::shared_ptr<const BlockHeader> block) {
+				if(block) {
+					auto& out = job->result[i];
+					out["height"] = block->height;
+					out["tx_count"] = block->tx_count;
+					out["netspace"] = double(calc_total_netspace(params, block->space_diff)) * pow(1000, -5);
+					out["vdf_speed"] = double(block->time_diff) / params->time_diff_constant / params->block_time;
+					if(auto proof = block->proof) {
+						out["score"] = proof->score;
+					} else {
+						out["score"] = nullptr;
+					}
+					uint64_t total = 0;
+					if(auto tx = std::dynamic_pointer_cast<const Transaction>(block->tx_base)) {
+						for(const auto& out : tx->outputs) {
+							total += out.amount;
+						}
+					}
+					out["reward"] = total / pow(10, params->decimals);
+				}
 				if(--job->num_left == 0) {
 					respond(job->request_id, render_value(job->result));
 				}
@@ -880,6 +930,17 @@ void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> 
 				respond(request_id, res);
 			},
 			std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
+	}
+	else if(sub_path == "/node/graph/blocks") {
+		const auto iter_limit = query.find("limit");
+		const auto iter_step = query.find("step");
+		const size_t limit = std::max<int64_t>(std::min<int64_t>(vnx::from_string<int64_t>(iter_limit->second), 1000), 0);
+		const size_t step = std::max<int64_t>(std::min<int64_t>(vnx::from_string<int64_t>(iter_step->second), 90), 0);
+		node->get_height(
+				[this, request_id, limit, step](const uint32_t& height) {
+					render_block_graph(request_id, limit, step, height);
+				},
+				std::bind(&WebAPI::respond_ex, this, request_id, std::placeholders::_1));
 	}
 	else if(sub_path == "/header") {
 		const auto iter_hash = query.find("hash");
@@ -1418,9 +1479,13 @@ void WebAPI::http_request_async(std::shared_ptr<const vnx::addons::HttpRequest> 
 					get_context(addr_set, request_id,
 						[this, request_id, pairs](std::shared_ptr<RenderContext> context) {
 							std::vector<exchange::trade_pair_t> res;
+							const std::set<exchange::trade_pair_t> set(pairs.begin(), pairs.end());
 							for(const auto& pair : pairs) {
 								res.push_back(pair);
-								res.push_back(pair.reverse());
+								const auto other = pair.reverse();
+								if(!set.count(other)) {
+									res.push_back(other);
+								}
 							}
 							std::sort(res.begin(), res.end());
 							respond(request_id, render_value(res, context));

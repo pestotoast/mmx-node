@@ -272,10 +272,11 @@ app.component('exchange-trade-list', {
 				<th colspan="2">Volume</th>
 				<th colspan="2">Price</th>
 				<th>Height</th>
+				<th>Link</th>
 				<th>Time</th>
 			</thead>
 			<tbody>
-				<tr v-for="item in data.history" :key="item.id">
+				<tr v-for="item in data.history">
 					<td :class="item.type == 'BUY' ? 'positive' : 'negative'">{{item.type}}</td>
 					<td class="collapsing"><b>{{item.bid_value}}</b></td>
 					<td>{{data.bid_symbol}}</td>
@@ -284,6 +285,7 @@ app.component('exchange-trade-list', {
 					<td class="collapsing"><b>{{(item.ask_value / item.bid_value).toPrecision(5)}}</b></td>
 					<td>{{data.ask_symbol}} / {{data.bid_symbol}}</td>
 					<td>{{item.height}}</td>
+					<td><router-link :to="'/explore/transaction/' + item.id">TX</router-link></td>
 					<td>{{new Date(item.time * 1000).toLocaleString()}}</td>
 				</tr>
 			</tbody>

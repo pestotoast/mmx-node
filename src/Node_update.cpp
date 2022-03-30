@@ -139,7 +139,7 @@ void Node::update()
 	}
 
 #pragma omp parallel for if(!is_synced)
-	for(size_t i = 0; i < to_verify.size(); ++i)
+	for(int i = 0; i < int(to_verify.size()); ++i)
 	{
 		const auto& fork = to_verify[i];
 		const auto& block = fork->block;
@@ -490,7 +490,7 @@ bool Node::make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<c
 	context->height = block->height;
 
 #pragma omp parallel for
-	for(size_t i = 0; i < tx_list.size(); ++i)
+	for(int i = 0; i < int(tx_list.size()); ++i)
 	{
 		auto& entry = tx_list[i];
 		auto& tx = entry.tx;
@@ -546,10 +546,16 @@ bool Node::make_block(std::shared_ptr<const BlockHeader> prev, std::shared_ptr<c
 					passed = false;
 				}
 			}
-			for(const auto& op : tx->execute) {
-				if(std::dynamic_pointer_cast<const operation::Mutate>(op)) {
+			{
+				std::unordered_set<addr_t> addr_set;
+				for(const auto& op : tx->execute) {
+					if(std::dynamic_pointer_cast<const operation::Mutate>(op)) {
+						addr_set.insert(op->address);
+					}
+				}
+				for(const auto& addr : addr_set) {
 					// prevent concurrent mutation
-					if(!mutated.insert(op->address).second) {
+					if(!mutated.insert(addr).second) {
 						passed = false;
 					}
 				}

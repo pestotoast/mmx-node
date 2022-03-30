@@ -27,9 +27,13 @@ void Node::verify_proof(std::shared_ptr<fork_t> fork, const hash_t& vdf_challeng
 	}
 	// Note: vdf_output already verified to match vdf_iters
 
-	if(block->proof) {
+	if(auto proof = block->proof) {
 		const auto challenge = get_challenge(block, vdf_challenge);
-		fork->proof_score = verify_proof(block->proof, challenge, diff_block->space_diff);
+		fork->proof_score = verify_proof(proof, challenge, diff_block->space_diff);
+
+		if(proof->score != fork->proof_score) {
+			throw std::logic_error("invalid proof score");
+		}
 
 		// check if block has a weak proof
 		const auto iter = proof_map.find(challenge);
@@ -156,7 +160,7 @@ void Node::verify_vdf(std::shared_ptr<const ProofOfTime> proof, const uint32_t c
 	size_t invalid_segment = -1;
 
 #pragma omp parallel for
-	for(size_t i = 0; i < segments.size(); ++i)
+	for(int i = 0; i < int(segments.size()); ++i)
 	{
 		if(!is_valid) {
 			continue;
@@ -275,6 +279,7 @@ void Node::verify_vdf_task(std::shared_ptr<const ProofOfTime> proof) const noexc
 		point->output[1] = proof->get_output(1);
 		point->infused = proof->infuse[0];
 		point->proof = proof;
+		// TODO: use actual receive time
 		point->recv_time = time_begin;
 
 		add_task([this, proof, point]() {
